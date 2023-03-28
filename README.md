@@ -1,1 +1,1 @@
-# elastic_network
+# L2N
