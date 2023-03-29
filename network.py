@@ -83,7 +83,10 @@ class Bond:
             return False
 
     def __hash__(self) -> int:
-        return hash((self.atom1.atom_id, self.atom2.atom_id, round(self.length, 6)))
+        if self.atom1.atom_id > self.atom2.atom_id:
+            return hash((self.atom2.atom_id, self.atom1.atom_id, round(self.length, 6)))
+        else:
+            return hash((self.atom1.atom_id, self.atom2.atom_id, round(self.length, 6)))
 
 
 class Header:
@@ -271,7 +274,8 @@ def make_bonds(atoms: list[Atom]) -> list[Bond]:
 
 def write_atoms(file: TextIO, atoms: list[Atom]):
     # 7-7-7-11-11-11-11
-    file.write("\nAtoms\n\n")
+    legend = ['atomID', 'atomType', 'diameter', 'density', 'x', 'y', 'z']
+    file.write(f"\nAtoms # {legend}\n\n")
     for atom in atoms:
         properties = [
             atom.atom_id,
@@ -289,7 +293,8 @@ def write_atoms(file: TextIO, atoms: list[Atom]):
 
 def write_bonds(file: TextIO, bonds: list[Bond]):
     # 10-10-10-10
-    file.write("\nBonds\n\n")
+    legend = ['ID', 'type', 'atom1', 'atom2']
+    file.write(f"\nBonds # {legend}\n\n")
     for _id, bond in enumerate(bonds):
         properties = [
             _id + 1,
@@ -304,7 +309,8 @@ def write_bonds(file: TextIO, bonds: list[Bond]):
 
 def write_bond_coeffs(file: TextIO, bonds: list[Bond]):
     # 7-11-11
-    file.write("\nBond Coeffs\n\n")
+    legend = ['bondID', 'bondCoeff', 'd']
+    file.write(f"\nBond Coeffs # {legend}\n\n")
     for n, bond in enumerate(bonds):
         properties = [
             n+1,
