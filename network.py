@@ -43,7 +43,7 @@ class Atom:
         return False
 
     def __hash__(self) -> int:
-        return hash(self.atom_id)
+        return hash((self.atom_id, self.x, self.y, self.z))
 
     def dist(self, atom: Atom) -> float:
         return (
@@ -71,9 +71,9 @@ class Bond:
 
     def __repr__(self) -> str:
         return f"""Bond(atom1: {self.atom1}, 
-                atom2: {self.atom2}, 
-                d: {self.length}, 
-                coeff: {self.bond_coefficient})"""
+         atom2: {self.atom2}, 
+         d: {self.length}, 
+         coeff: {self.bond_coefficient})"""
 
     def __eq__(self, other: Bond) -> bool:
         if ({self.atom1, self.atom2} == {other.atom1, other.atom2}
@@ -238,15 +238,23 @@ def get_box(file_content: list[str]) -> tuple(float):
             return (x1, x2, y1, y2, z1, z2)
 
 
-def add_spaces(string: str, width: int, location: str = "start") -> str:
+def add_spaces(string: str, width: int, indent: str = "right") -> str:
     if width <= len(string):
         print(f"String {string} is longer than provided width {width}!")
         return "!"
     spaces_to_add = (width - len(string)) * " "
-    if location == "start":
+    if indent == 'right':
         return spaces_to_add + string
-    else:
+    elif indent == 'left':
         return string + spaces_to_add
+
+
+def table_row(items: list, widths: list, indent: str = 'right') -> str:
+    line = []
+    for item, width in zip(items, widths):
+        line.append(add_spaces(str(item), width, indent))
+    
+    return ''.join(line) + '\n'
 
 
 def make_bonds(atoms: list[Atom]) -> list[Bond]:
@@ -265,38 +273,47 @@ def write_atoms(file: TextIO, atoms: list[Atom]):
     # 7-7-7-11-11-11-11
     file.write("\nAtoms\n\n")
     for atom in atoms:
-        file.write(
-            f"{add_spaces(str(atom.atom_id), 7)}"
-            f"{add_spaces('1', 7)}"
-            f"{add_spaces('1', 7)}"
-            f"{add_spaces('0.000000', 11)}"
-            f"{add_spaces(str(round(atom.x, 6)), 11)}"
-            f"{add_spaces(str(round(atom.y, 6)), 11)}"
-            f"{add_spaces(str(round(atom.z, 6)), 11)}\n"
-        )
+        properties = [
+            atom.atom_id,
+            '1',
+            '1',
+            '0.000000',
+            round(atom.x, 6),
+            round(atom.y, 6),
+            round(atom.z, 6),
+        ]
+        widths = [7, 7, 7, 11, 11, 11, 11]
+        line = table_row(properties, widths)
+        file.write(line)
 
 
 def write_bonds(file: TextIO, bonds: list[Bond]):
-    column_width = 10
+    # 10-10-10-10
     file.write("\nBonds\n\n")
     for _id, bond in enumerate(bonds):
-        file.write(
-            f"{add_spaces(str(_id + 1), column_width)}"
-            f"{add_spaces(str(_id + 1), column_width)}"
-            f"{add_spaces(str(bond.atom1.atom_id), column_width)}"
-            f"{add_spaces(str(bond.atom2.atom_id), column_width)}\n"
-        )
+        properties = [
+            _id + 1,
+            _id + 1,
+            bond.atom1.atom_id,
+            bond.atom2.atom_id
+        ]
+        widths = [10, 10, 10, 10]
+        line = table_row(properties, widths)
+        file.write(line)
 
 
 def write_bond_coeffs(file: TextIO, bonds: list[Bond]):
     # 7-11-11
     file.write("\nBond Coeffs\n\n")
     for n, bond in enumerate(bonds):
-        file.write(
-            f"{add_spaces(str(n + 1), 7)}"
-            f"{add_spaces(str(round(bond.bond_coefficient, 6)), 11)}"
-            f"{add_spaces(str(round(bond.length, 6)), 11)}\n"
-        )
+        properties = [
+            n+1,
+            round(bond.bond_coefficient, 6),
+            round(bond.length, 6)
+        ]
+        widths = [7, 11, 11]
+        line = table_row(properties, widths)
+        file.write(line)
 
 
 def main():
