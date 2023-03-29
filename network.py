@@ -256,7 +256,7 @@ def table_row(items: list, widths: list, indent: str = 'right') -> str:
     line = []
     for item, width in zip(items, widths):
         line.append(add_spaces(str(item), width, indent))
-    
+
     return ''.join(line) + '\n'
 
 
@@ -349,7 +349,7 @@ def main():
     print(f"Bonds after deletion: {len(bonds)}")
 
     header = Header(atoms, bonds, box)
-    
+
     with open(out_file, "w", encoding="utf8") as f:
         header.write_header(f)
         write_atoms(f, atoms)
