@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import TextIO
+from typing import TextIO, List
+from copy import deepcopy
 
 
 class Atom:
@@ -44,6 +45,18 @@ class Atom:
 
     def __hash__(self) -> int:
         return hash((self.atom_id, self.x, self.y, self.z))
+
+    def move(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Atom:
+        self.x += x
+        self.y += y
+        self.z += z
+        return self
+    
+    def translate(self, box: Box, direction: tuple = (0, 0, 0)) -> Atom:
+        x_move = direction[0] * box.x
+        y_move = direction[1] * box.y
+        z_move = direction[2] * box.z
+        return self.move(x_move, y_move, z_move)
 
     def dist(self, atom: Atom) -> float:
         return (
@@ -191,7 +204,36 @@ class Header:
         file.write(" zlo zhi\n")
 
 
-def get_atoms(file_contents: list[str]) -> list[Atom]:
+class Box():
+    x1: float
+    x2: float
+    y1: float
+    y2: float
+    z1: float
+    z2: float
+    
+    def __init__(self, x1, x2, y1, y2, z1, z2):
+        self.x1 = x1
+        self.x2 = x2
+        self.y1 = y1
+        self.y2 = y2
+        self.z1 = z1
+        self.z2 = z2
+
+    @property
+    def x(self):
+        return abs(self.x1 - self.x2)
+    
+    @property
+    def y(self):
+        return abs(self.y1 - self.y2)
+    
+    @property
+    def z(self):
+        return abs(self.z1 - self.z2)
+
+
+def get_atoms(file_contents: List[str]) -> List[Atom]:
     n_atoms = 0
     atoms_start_line = 0
     atoms_end_line = 0
@@ -223,12 +265,12 @@ def get_atoms(file_contents: list[str]) -> list[Atom]:
     return atoms
 
 
-def delete_dangling(atoms: list[Atom]) -> list[Atom]:
+def delete_dangling(atoms: List[Atom]) -> List[Atom]:
     atoms = [atom for atom in atoms if atom.n_bonds > 2]
     return atoms
 
 
-def get_box(file_content: list[str]) -> tuple(float):
+def get_box(file_content: List[str]) -> Box:
     # get box size (x and y only for now) from lammps data file
     for i, line in enumerate(file_content):
         if "xlo" in line:
@@ -237,8 +279,7 @@ def get_box(file_content: list[str]) -> tuple(float):
                            [0]), float(file_content[i+1].split()[1])
             z1, z2 = float(file_content[i+2].split()
                            [0]), float(file_content[i+2].split()[1])
-            # print(f"Box: {x1}, {x2}, {y1}, {y2}, {z1}, {z2}.")
-            return (x1, x2, y1, y2, z1, z2)
+            return Box(x1, x2, y1, y2, z1, z2)
 
 
 def add_spaces(string: str, width: int, indent: str = "right") -> str:
@@ -260,7 +301,20 @@ def table_row(items: list, widths: list, indent: str = 'right') -> str:
     return ''.join(line) + '\n'
 
 
-def make_bonds(atoms: list[Atom]) -> list[Bond]:
+def make_surrounding(atoms: List[Atom], box: Box) -> List[Atom]:
+    surrounding_atoms = set()
+    # spawn neighbouring atoms along the x and y axis of the bounding box, 8 in total
+    for atom in atoms:
+        for x in (-1, 0, 1):
+            for y in (-1, 0, 1):
+                for z in (-1, 0, 1):
+                    if not(x * box.x == y * box.y == z * box.z == 0):
+                        surrounding_atoms.add(
+                            deepcopy(atom).translate(box, (x, y, z)))
+    return list(surrounding_atoms)
+
+
+def make_bonds(atoms: List[Atom]) -> List[Bond]:
     bonds = set()
     for atom_k in atoms:
         for atom_j in atoms:
@@ -323,10 +377,9 @@ def write_bond_coeffs(file: TextIO, bonds: list[Bond]):
 
 
 def main():
-    usage_info = """USAGE:
-        ./network.py target_file [OPTIONAL] out_file."""
+    usage_info = "\n[USAGE]:\n\n    ./network.py target_file [OPTIONAL] out_file.\n"
     if len(sys.argv) < 2:
-        print("[ERROR]: target file was not provided.")
+        print("\n[ERROR]: target file was not provided.")
         print(usage_info)
         exit(0)
     elif sys.argv[1] == 'help':
