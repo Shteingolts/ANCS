@@ -63,6 +63,15 @@ class Atom:
             (self.x - atom.x) ** 2 + (self.y -
                                       atom.y) ** 2 + (self.z - atom.z) ** 2
         ) ** 0.5
+    
+    def within_box(self, box: Box) -> bool:
+        if (
+            box.x1 >= self.x and self.x <= box.x2 and
+            box.y1 >= self.y and self.y <= box.y2 and
+            box.z1 >= self.z and self.y <= box.z2):
+            return True
+        else:
+            return False
 
 
 class Bond:
@@ -117,12 +126,12 @@ class Header:
 
     def __init__(
         self,
-        atoms: list[Atom],
-        bonds: list[Bond],
+        atoms: List[Atom],
+        bonds: List[Bond],
         box_dimensions: tuple,
-        angles: list or None = None,
-        dihedrals: list or None = None,
-        impropers: list or None = None,
+        angles: List or None = None,
+        dihedrals: List or None = None,
+        impropers: List or None = None,
         atom_types: int = 1,
         bond_types: int = 0,
         angle_types: int = 0,
@@ -204,7 +213,7 @@ class Header:
         file.write(" zlo zhi\n")
 
 
-class Box():
+class Box:
     x1: float
     x2: float
     y1: float
@@ -219,6 +228,9 @@ class Box():
         self.y2 = y2
         self.z1 = z1
         self.z2 = z2
+
+    def __repr__(self) -> str:
+        return f"Box(x: {self.x}, y: {self.y}, z: {self.z})"
 
     @property
     def x(self):
@@ -293,7 +305,7 @@ def add_spaces(string: str, width: int, indent: str = "right") -> str:
         return string + spaces_to_add
 
 
-def table_row(items: list, widths: list, indent: str = 'right') -> str:
+def table_row(items: List, widths: List, indent: str = 'right') -> str:
     line = []
     for item, width in zip(items, widths):
         line.append(add_spaces(str(item), width, indent))
@@ -314,7 +326,7 @@ def make_surrounding(atoms: List[Atom], box: Box) -> List[Atom]:
     return list(surrounding_atoms)
 
 
-def make_bonds(atoms: List[Atom]) -> List[Bond]:
+def make_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
     bonds = set()
     for atom_k in atoms:
         for atom_j in atoms:
@@ -323,10 +335,15 @@ def make_bonds(atoms: List[Atom]) -> List[Bond]:
                     bonds.add(Bond(atom_k, atom_j))
                     atom_k.n_bonds += 1
                     atom_j.n_bonds += 1
+    
+    d = 2.0
+    neighbours = make_surrounding(atoms, box)
+    closest_neighbours = [atom for atom in neighbours if atom.is_on_edge(box, 1.0)]
+    
     return list(bonds)
 
 
-def write_atoms(file: TextIO, atoms: list[Atom]):
+def write_atoms(file: TextIO, atoms: List[Atom]):
     # 7-7-7-11-11-11-11
     legend = ['atomID', 'atomType', 'diameter', 'density', 'x', 'y', 'z']
     file.write(f"\nAtoms # {legend}\n\n")
@@ -345,7 +362,7 @@ def write_atoms(file: TextIO, atoms: list[Atom]):
         file.write(line)
 
 
-def write_bonds(file: TextIO, bonds: list[Bond]):
+def write_bonds(file: TextIO, bonds: List[Bond]):
     # 10-10-10-10
     legend = ['ID', 'type', 'atom1', 'atom2']
     file.write(f"\nBonds # {legend}\n\n")
@@ -361,7 +378,7 @@ def write_bonds(file: TextIO, bonds: list[Bond]):
         file.write(line)
 
 
-def write_bond_coeffs(file: TextIO, bonds: list[Bond]):
+def write_bond_coeffs(file: TextIO, bonds: List[Bond]):
     # 7-11-11
     legend = ['bondID', 'bondCoeff', 'd']
     file.write(f"\nBond Coeffs # {legend}\n\n")
