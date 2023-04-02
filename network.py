@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import TextIO, List
 from copy import deepcopy
+from typing import List, TextIO
 
 
 class Atom:
@@ -51,8 +51,9 @@ class Atom:
         self.y += y
         self.z += z
         return self
-    
+
     def translate(self, box: Box, direction: tuple = (0, 0, 0)) -> Atom:
+
         x_move = direction[0] * box.x
         y_move = direction[1] * box.y
         z_move = direction[2] * box.z
@@ -63,12 +64,44 @@ class Atom:
             (self.x - atom.x) ** 2 + (self.y -
                                       atom.y) ** 2 + (self.z - atom.z) ** 2
         ) ** 0.5
-    
+
     def within_box(self, box: Box) -> bool:
-        if (
-            box.x1 >= self.x and self.x <= box.x2 and
-            box.y1 >= self.y and self.y <= box.y2 and
-            box.z1 >= self.z and self.y <= box.z2):
+        x_min, x_max = min(box.x1, box.x2), max(box.x1, box.x2)
+        y_min, y_max = min(box.y1, box.y2), max(box.y1, box.y2)
+        z_min, z_max = min(box.z1, box.z2), max(box.z1, box.z2)
+
+        if x_min <= self.x <= x_max and y_min <= self.y <= y_max and z_min <= self.z <= z_max:
+            return True
+        else:
+            return False
+
+    def on_edge(self, box: Box, delta: float) -> bool:
+        delta_x = delta_y = delta_z = delta
+        if box.x1 == box.x2 == 0.0:
+            delta_x = 0.0
+        if box.y1 == box.y2 == 0.0:
+            delta_y = 0.0
+        if box.z1 == box.z2 == 0.0:
+            delta_z = 0.0
+
+        smaller_box = Box(
+            box.x1 + delta_x,
+            box.x2 - delta_x,
+            box.y1 + delta_y,
+            box.y2 - delta_y,
+            box.z1 + delta_z,
+            box.z2 - delta_z
+        )
+        bigger_box = Box(
+            box.x1 - delta_x,
+            box.x2 + delta_x,
+            box.y1 - delta_y,
+            box.y2 + delta_y,
+            box.z1 - delta_z,
+            box.z2 + delta_z,
+        )
+
+        if self.within_box(bigger_box) and not self.within_box(smaller_box):
             return True
         else:
             return False
@@ -79,7 +112,6 @@ class Bond:
     All bonds haver the same elasticity. The bond coefficient is 1 / d^2,
     where d is the bond length.
     """
-
     atom1: Atom
     atom2: Atom
     length: float
@@ -92,7 +124,7 @@ class Bond:
         self.bond_coefficient = 1 / (self.length ** 2)
 
     def __repr__(self) -> str:
-        return f"""Bond(atom1: {self.atom1}, 
+        return f"""Bond(atom1: {self.atom1},
          atom2: {self.atom2}, 
          d: {self.length}, 
          coeff: {self.bond_coefficient})"""
@@ -127,8 +159,8 @@ class Header:
     def __init__(
         self,
         atoms: List[Atom],
-        bonds: List[Bond],
-        box_dimensions: tuple,
+        bonds: List or None,
+        box: Box,
         angles: List or None = None,
         dihedrals: List or None = None,
         impropers: List or None = None,
@@ -139,8 +171,9 @@ class Header:
         improper_types: int = 0,
     ):
 
+        self.box_dimensions = box.dimensions
         self.atoms = len(atoms)
-        self.bonds = len(bonds)
+        self.bonds = len(bonds) if (bonds is not None) else 0
         self.angles = len(angles) if (angles is not None) else 0
         self.dihedrals = len(dihedrals) if (dihedrals is not None) else 0
         self.impropers = len(impropers) if (impropers is not None) else 0
@@ -177,8 +210,6 @@ class Header:
                 self.improper_types = len(improper_types)
             else:
                 self.improper_types = improper_types
-
-        self.box_dimensions = box_dimensions
 
     def write_header(self, file: TextIO) -> None:
         file.write("LAMMPS data file.\n")
@@ -220,29 +251,39 @@ class Box:
     y2: float
     z1: float
     z2: float
-    
+
     def __init__(self, x1, x2, y1, y2, z1, z2):
-        self.x1 = x1
-        self.x2 = x2
-        self.y1 = y1
-        self.y2 = y2
-        self.z1 = z1
-        self.z2 = z2
+        self.x1, self.x2 = min(x1, x2), max(x1, x2)
+        self.y1, self.y2 = min(y1, y2), max(y1, y2)
+        self.z1, self.z2 = min(z1, z2), max(z1, z2)
 
     def __repr__(self) -> str:
-        return f"Box(x: {self.x}, y: {self.y}, z: {self.z})"
+        return f"Box(x: ({self.x1}, {self.x2})\ny: ({self.y1}, {self.y2})\nz: ({self.z1}, {self.z2}))"
+
+    def resize(self, delta: float) -> Box:
+        self.x1 += delta/2
+        self.x2 -= delta/2
+        self.y1 += delta/2
+        self.y2 -= delta/2
+        self.z1 += delta/2
+        self.z2 -= delta/2
+        return self
 
     @property
     def x(self):
-        return abs(self.x1 - self.x2)
-    
+        return abs(self.x2 - self.x1)
+
     @property
     def y(self):
-        return abs(self.y1 - self.y2)
-    
+        return abs(self.y2 - self.y1)
+
     @property
     def z(self):
-        return abs(self.z1 - self.z2)
+        return abs(self.z2 - self.z1)
+
+    @property
+    def dimensions(self):
+        return (self.x1, self.x2, self.y1, self.y2, self.z1, self.z2)
 
 
 def get_atoms(file_contents: List[str]) -> List[Atom]:
@@ -313,20 +354,28 @@ def table_row(items: List, widths: List, indent: str = 'right') -> str:
     return ''.join(line) + '\n'
 
 
-def make_surrounding(atoms: List[Atom], box: Box) -> List[Atom]:
+def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[Atom]:
     surrounding_atoms = set()
-    # spawn neighbouring atoms along the x and y axis of the bounding box, 8 in total
-    for atom in atoms:
-        for x in (-1, 0, 1):
-            for y in (-1, 0, 1):
-                for z in (-1, 0, 1):
-                    if not(x * box.x == y * box.y == z * box.z == 0):
-                        surrounding_atoms.add(
-                            deepcopy(atom).translate(box, (x, y, z)))
+    # spawn neighboring atoms along the x and y axis of the bounding box, 8 in total
+    if dimensions == 2:
+        for atom in atoms:
+            for x in (-1, 0, 1):
+                for y in (-1, 0, 1):
+                    if not x * box.x == y * box.y == 0:
+                        surrounding_atoms.add(deepcopy(atom).translate(box, (x, y, 0)))
+    elif dimensions == 3:
+        for atom in atoms:
+            for x in (-1, 0, 1):
+                for y in (-1, 0, 1):
+                    for z in (-1, 0, 1):
+                        if not x * box.x == y * box.y == z * box.z == 0:
+                            surrounding_atoms.add(
+                                deepcopy(atom).translate(box, (x, y, z)))
+
     return list(surrounding_atoms)
 
 
-def make_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
+def make_bonds(atoms: List[Atom]) -> List[Bond]:
     bonds = set()
     for atom_k in atoms:
         for atom_j in atoms:
@@ -335,12 +384,22 @@ def make_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
                     bonds.add(Bond(atom_k, atom_j))
                     atom_k.n_bonds += 1
                     atom_j.n_bonds += 1
-    
-    d = 2.0
-    neighbours = make_surrounding(atoms, box)
-    closest_neighbours = [atom for atom in neighbours if atom.is_on_edge(box, 1.0)]
-    
     return list(bonds)
+
+
+def make_outside_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
+    edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
+    neighbors = make_surrounding(atoms, box)
+    edge_neighbors = [atom for atom in neighbors if atom.on_edge(box, 1.0)]
+
+    extra_bonds = set()
+    for main_atom in edges:
+        for outside_atom in edge_neighbors:
+            if main_atom != outside_atom:
+                if main_atom.dist(outside_atom) <= ((main_atom.diameter / 2) + outside_atom.diameter / 2):
+                    extra_bonds.add(Bond(main_atom, outside_atom))
+                    main_atom.n_bonds += 1
+    return list(extra_bonds)
 
 
 def write_atoms(file: TextIO, atoms: List[Atom]):
@@ -409,14 +468,18 @@ def main():
     with open(input_file, "r", encoding="utf8") as f:
         content = f.readlines()
 
+    box = get_box(content)
     atoms = get_atoms(content)
     bonds = make_bonds(atoms)
-    box = get_box(content)
+    extra_bonds = make_outside_bonds(atoms, box)
 
     atoms = delete_dangling(atoms)
     bonds = make_bonds(atoms)
-    print(f"Atoms after deletion: {len(atoms)}")
-    print(f"Bonds after deletion: {len(bonds)}")
+    extra_bonds = make_outside_bonds(atoms, box)
+    bonds = bonds + extra_bonds
+    print(f"Atoms after deletion of dangling: {len(atoms)}")
+    print(f"Extra bonds due to periodicity: {len(extra_bonds)}.")
+    print(f"Bonds total: {len(bonds)}")
 
     header = Header(atoms, bonds, box)
 
@@ -428,6 +491,5 @@ def main():
 
     if os.path.isfile(out_file) and os.stat(out_file).st_size != 0:
         print(f"Output was written in: {out_file}")
-
 
 main()
