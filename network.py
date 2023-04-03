@@ -1,3 +1,8 @@
+"""
+A simple utility script, which takes lammps dump output and turns it into a lammps-readable file.
+v. 0.1.0
+"""
+
 from __future__ import annotations
 
 import os
@@ -61,8 +66,7 @@ class Atom:
 
     def dist(self, atom: Atom) -> float:
         return (
-            (self.x - atom.x) ** 2 + (self.y -
-                                      atom.y) ** 2 + (self.z - atom.z) ** 2
+            (self.x - atom.x) ** 2 + (self.y - atom.y) ** 2 + (self.z - atom.z) ** 2
         ) ** 0.5
 
     def within_box(self, box: Box) -> bool:
@@ -70,7 +74,11 @@ class Atom:
         y_min, y_max = min(box.y1, box.y2), max(box.y1, box.y2)
         z_min, z_max = min(box.z1, box.z2), max(box.z1, box.z2)
 
-        if x_min <= self.x <= x_max and y_min <= self.y <= y_max and z_min <= self.z <= z_max:
+        if (
+            x_min <= self.x <= x_max
+            and y_min <= self.y <= y_max
+            and z_min <= self.z <= z_max
+        ):
             return True
         else:
             return False
@@ -90,7 +98,7 @@ class Atom:
             box.y1 + delta_y,
             box.y2 - delta_y,
             box.z1 + delta_z,
-            box.z2 - delta_z
+            box.z2 - delta_z,
         )
         bigger_box = Box(
             box.x1 - delta_x,
@@ -112,6 +120,7 @@ class Bond:
     All bonds haver the same elasticity. The bond coefficient is 1 / d^2,
     where d is the bond length.
     """
+
     atom1: Atom
     atom2: Atom
     length: float
@@ -130,9 +139,9 @@ class Bond:
          coeff: {self.bond_coefficient})"""
 
     def __eq__(self, other: Bond) -> bool:
-        if ({self.atom1, self.atom2} == {other.atom1, other.atom2}
-                and round(self.length, 6) == round(other.length, 6)):
-            return True
+        if {self.atom1, self.atom2} == {other.atom1, other.atom2}:
+            if round(self.length, 6) == round(other.length, 6):
+                return True
         else:
             return False
 
@@ -261,12 +270,12 @@ class Box:
         return f"Box(x: ({self.x1}, {self.x2})\ny: ({self.y1}, {self.y2})\nz: ({self.z1}, {self.z2}))"
 
     def resize(self, delta: float) -> Box:
-        self.x1 += delta/2
-        self.x2 -= delta/2
-        self.y1 += delta/2
-        self.y2 -= delta/2
-        self.z1 += delta/2
-        self.z2 -= delta/2
+        self.x1 += delta / 2
+        self.x2 -= delta / 2
+        self.y1 += delta / 2
+        self.y2 -= delta / 2
+        self.z1 += delta / 2
+        self.z2 -= delta / 2
         return self
 
     @property
@@ -318,9 +327,12 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
     return atoms
 
 
-def delete_dangling(atoms: List[Atom]) -> List[Atom]:
-    atoms = [atom for atom in atoms if atom.n_bonds > 2]
-    return atoms
+def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
+    new_atoms = [atom for atom in atoms if atom.n_bonds > 2]
+    difference = len(atoms) - len(new_atoms)
+    for atom in new_atoms:
+        atom.n_bonds = 0
+    return (new_atoms, difference)
 
 
 def get_box(file_content: List[str]) -> Box:
@@ -328,30 +340,40 @@ def get_box(file_content: List[str]) -> Box:
     for i, line in enumerate(file_content):
         if "xlo" in line:
             x1, x2 = float(line.split()[0]), float(line.split()[1])
-            y1, y2 = float(file_content[i+1].split()
-                           [0]), float(file_content[i+1].split()[1])
-            z1, z2 = float(file_content[i+2].split()
-                           [0]), float(file_content[i+2].split()[1])
-            return Box(x1, x2, y1, y2, z1, z2)
+            y1, y2 = (
+                float(file_content[i + 1].split()[0]),
+                float(file_content[i + 1].split()[1]),
+            )
+            z1, z2 = (
+                float(file_content[i + 2].split()[0]),
+                float(file_content[i + 2].split()[1]),
+            )
+    try:
+        return Box(x1, x2, y1, y2, z1, z2)
+    except NameError:
+        print("Failure reading box dimensions, probably not a valid input file.")
+        sys.exit(1)
 
 
 def add_spaces(string: str, width: int, indent: str = "right") -> str:
+    """
+    If the string is longer than provided width, returns the original string without change.
+    """
     if width <= len(string):
-        print(f"String {string} is longer than provided width {width}!")
-        return "!"
+        return string
     spaces_to_add = (width - len(string)) * " "
-    if indent == 'right':
+    if indent == "right":
         return spaces_to_add + string
-    elif indent == 'left':
+    if indent == "left":
         return string + spaces_to_add
 
 
-def table_row(items: List, widths: List, indent: str = 'right') -> str:
+def table_row(items: List, widths: List, indent: str = "right") -> str:
     line = []
     for item, width in zip(items, widths):
         line.append(add_spaces(str(item), width, indent))
 
-    return ''.join(line) + '\n'
+    return "".join(line) + "\n"
 
 
 def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[Atom]:
@@ -370,24 +392,30 @@ def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[A
                     for z in (-1, 0, 1):
                         if not x * box.x == y * box.y == z * box.z == 0:
                             surrounding_atoms.add(
-                                deepcopy(atom).translate(box, (x, y, z)))
-
+                                deepcopy(atom).translate(box, (x, y, z))
+                            )
+    else:
+        raise NotImplementedError(
+            "Allowed values for `dimensions` argument are either 2 or 3."
+        )
     return list(surrounding_atoms)
 
 
-def make_bonds(atoms: List[Atom]) -> List[Bond]:
+def _make_inner_bonds(atoms: List[Atom]) -> List[Bond]:
     bonds = set()
     for atom_k in atoms:
         for atom_j in atoms:
             if atom_k != atom_j:
-                if atom_k.dist(atom_j) <= ((atom_k.diameter / 2) + (atom_j.diameter / 2)):  # noqa: E501
+                if atom_k.dist(atom_j) <= (
+                    (atom_k.diameter / 2) + (atom_j.diameter / 2)
+                ):
                     bonds.add(Bond(atom_k, atom_j))
                     atom_k.n_bonds += 1
                     atom_j.n_bonds += 1
     return list(bonds)
 
 
-def make_outside_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
+def _make_outside_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
     edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
     neighbors = make_surrounding(atoms, box)
     edge_neighbors = [atom for atom in neighbors if atom.on_edge(box, 1.0)]
@@ -396,22 +424,52 @@ def make_outside_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
     for main_atom in edges:
         for outside_atom in edge_neighbors:
             if main_atom != outside_atom:
-                if main_atom.dist(outside_atom) <= ((main_atom.diameter / 2) + outside_atom.diameter / 2):
+                # if the interatomic distance is less than the sum of two atomic radii,
+                # the bond is formed
+                if main_atom.dist(outside_atom) <= (
+                    (main_atom.diameter / 2) + outside_atom.diameter / 2
+                ):
                     extra_bonds.add(Bond(main_atom, outside_atom))
                     main_atom.n_bonds += 1
     return list(extra_bonds)
 
 
+def make_bonds(atoms, box) -> list:
+    bonds = set()
+    for atom_k in atoms:
+        for atom_j in atoms:
+            if atom_k != atom_j:
+                if atom_k.dist(atom_j) <= (
+                    (atom_k.diameter / 2) + (atom_j.diameter / 2)
+                ):
+                    bonds.add(Bond(atom_k, atom_j))
+                    atom_k.n_bonds += 1
+
+    edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
+    neighbors = make_surrounding(atoms, box)
+    edge_neighbors = [atom for atom in neighbors if atom.on_edge(box, 1.0)]
+
+    extra_bonds = set()
+    for main_atom in edges:
+        for outside_atom in edge_neighbors:
+            if main_atom.dist(outside_atom) <= (
+                (main_atom.diameter / 2) + outside_atom.diameter / 2
+            ):
+                extra_bonds.add(Bond(main_atom, outside_atom))
+                main_atom.n_bonds += 1
+    return list(bonds.union(extra_bonds))
+
+
 def write_atoms(file: TextIO, atoms: List[Atom]):
     # 7-7-7-11-11-11-11
-    legend = ['atomID', 'atomType', 'diameter', 'density', 'x', 'y', 'z']
+    legend = ["atomID", "atomType", "diameter", "density", "x", "y", "z"]
     file.write(f"\nAtoms # {legend}\n\n")
     for atom in atoms:
         properties = [
             atom.atom_id,
-            '1',
-            '1',
-            '0.000000',
+            "1",
+            "1",
+            "0.000000",
             round(atom.x, 6),
             round(atom.y, 6),
             round(atom.z, 6),
@@ -423,15 +481,10 @@ def write_atoms(file: TextIO, atoms: List[Atom]):
 
 def write_bonds(file: TextIO, bonds: List[Bond]):
     # 10-10-10-10
-    legend = ['ID', 'type', 'atom1', 'atom2']
+    legend = ["ID", "type", "atom1", "atom2"]
     file.write(f"\nBonds # {legend}\n\n")
     for _id, bond in enumerate(bonds):
-        properties = [
-            _id + 1,
-            _id + 1,
-            bond.atom1.atom_id,
-            bond.atom2.atom_id
-        ]
+        properties = [_id + 1, _id + 1, bond.atom1.atom_id, bond.atom2.atom_id]
         widths = [10, 10, 10, 10]
         line = table_row(properties, widths)
         file.write(line)
@@ -439,14 +492,10 @@ def write_bonds(file: TextIO, bonds: List[Bond]):
 
 def write_bond_coeffs(file: TextIO, bonds: List[Bond]):
     # 7-11-11
-    legend = ['bondID', 'bondCoeff', 'd']
+    legend = ["bondID", "bondCoeff", "d"]
     file.write(f"\nBond Coeffs # {legend}\n\n")
     for n, bond in enumerate(bonds):
-        properties = [
-            n+1,
-            round(bond.bond_coefficient, 6),
-            round(bond.length, 6)
-        ]
+        properties = [n + 1, round(bond.bond_coefficient, 6), round(bond.length, 6)]
         widths = [7, 11, 11]
         line = table_row(properties, widths)
         file.write(line)
@@ -457,10 +506,10 @@ def main():
     if len(sys.argv) < 2:
         print("\n[ERROR]: target file was not provided.")
         print(usage_info)
-        exit(0)
-    elif sys.argv[1] == 'help':
+        sys.exit(0)
+    elif sys.argv[1] == "help":
         print(usage_info)
-        exit(0)
+        sys.exit(0)
 
     input_file = sys.argv[1]
     out_file = sys.argv[2] if len(sys.argv) > 2 else "output.lmp"
@@ -470,16 +519,19 @@ def main():
 
     box = get_box(content)
     atoms = get_atoms(content)
-    bonds = make_bonds(atoms)
-    extra_bonds = make_outside_bonds(atoms, box)
+    bonds = make_bonds(atoms, box)
 
-    atoms = delete_dangling(atoms)
-    bonds = make_bonds(atoms)
-    extra_bonds = make_outside_bonds(atoms, box)
-    bonds = bonds + extra_bonds
-    print(f"Atoms after deletion of dangling: {len(atoms)}")
-    print(f"Extra bonds due to periodicity: {len(extra_bonds)}.")
-    print(f"Bonds total: {len(bonds)}")
+    # we assume that there's at least one dangling bead
+    # if not, nothing bad will happen anyway
+    dangling_beads: int = 1
+    steps: int = 1
+    while dangling_beads > 0:
+        atoms, dangling_beads = delete_dangling(atoms)
+        bonds = make_bonds(atoms, box)
+        steps += 1
+
+    print(f"Atoms: {len(atoms)}.")
+    print(f"Bonds: {len(bonds)}.")
 
     header = Header(atoms, bonds, box)
 
@@ -491,5 +543,6 @@ def main():
 
     if os.path.isfile(out_file) and os.stat(out_file).st_size != 0:
         print(f"Output was written in: {out_file}")
+
 
 main()
