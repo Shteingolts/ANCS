@@ -7,8 +7,7 @@ LAMMPS data file via write_data, version 23 Jun 2022, timestep = 200000
 -11.405491061062177 11.405491061062177 ylo yhi
 -0.1 0.1 zlo zhi
 
-Atoms # sphere 
-# atomID-atomType-diameter-density-x-y-z-nx-ny-nz
+Atoms # sphere # atomID-atomType-diameter-density-x-y-z-nx-ny-nz
 
 943 4 1 1 -11.072395729364185 -10.90492754735232 0 1 0 0
 981 4 1 1 -10.151060117776275 -11.227970001332768 0 0 0 0

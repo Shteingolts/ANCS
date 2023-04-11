@@ -311,9 +311,10 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
         # read number of atoms at the top of data file
         if "atoms" in line.split():
             n_atoms = int(line.split()[0])
+            print(f"Atoms: {n_atoms}")
         # find the Atoms part
         if "Atoms" in line.split():
-            atoms_start_line = i + 3
+            atoms_start_line = i + 2
             atoms_end_line = atoms_start_line + n_atoms
             break
     # Go line-by-line extracting useful info
@@ -333,7 +334,7 @@ def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
     for atom in new_atoms:
         atom.n_bonds = 0
     return (new_atoms, difference)
-
+    
 
 def get_box(file_content: List[str]) -> Box:
     # get box size (x and y only for now) from lammps data file
@@ -511,10 +512,19 @@ def main():
         print(usage_info)
         sys.exit(0)
 
-    input_file = sys.argv[1]
-    out_file = sys.argv[2] if len(sys.argv) > 2 else "output.lmp"
+    input_file_path = sys.argv[1]
+    print(f"Input file: {os.path.abspath(input_file_path)}")
+    
+    if len(sys.argv) > 2:
+        out_file_path = sys.argv[2]
+    else:
+        input_file_path = os.path.abspath(input_file_path)
+        input_dir = os.path.dirname(input_file_path)
+        input_file_name = os.path.basename(input_file_path).split('.')[0]
+        out_file_name = ''.join((input_file_name, '_out.lmp'))
+        out_file_path = os.path.join(input_dir, out_file_name)
 
-    with open(input_file, "r", encoding="utf8") as f:
+    with open(input_file_path, "r", encoding="utf8") as f:
         content = f.readlines()
 
     box = get_box(content)
@@ -535,14 +545,14 @@ def main():
 
     header = Header(atoms, bonds, box)
 
-    with open(out_file, "w", encoding="utf8") as f:
+    with open(out_file_path, "w", encoding="utf8") as f:
         header.write_header(f)
         write_atoms(f, atoms)
         write_bonds(f, bonds)
         write_bond_coeffs(f, bonds)
 
-    if os.path.isfile(out_file) and os.stat(out_file).st_size != 0:
-        print(f"Output was written in: {out_file}")
+    if os.path.isfile(out_file_path) and os.stat(out_file_path).st_size != 0:
+        print(f"Output was written in: {os.path.abspath(out_file_path)}")
 
 
 main()
