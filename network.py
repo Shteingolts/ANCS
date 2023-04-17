@@ -313,7 +313,7 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
             n_atoms = int(line.split()[0])
         # find the Atoms part
         if "Atoms" in line.split():
-            atoms_start_line = i + 3
+            atoms_start_line = i + 2
             atoms_end_line = atoms_start_line + n_atoms
             break
     # Go line-by-line extracting useful info
