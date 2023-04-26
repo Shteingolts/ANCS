@@ -465,9 +465,9 @@ def write_atoms(file: TextIO, atoms: List[Atom]):
     # 7-7-7-11-11-11-11
     legend = ["atomID", "atomType", "diameter", "density", "x", "y", "z"]
     file.write(f"\nAtoms # {legend}\n\n")
-    for atom in atoms:
+    for index, atom in enumerate(atoms):
         properties = [
-            atom.atom_id,
+            index + 1,
             "1",
             "1",
             "0.000000",
