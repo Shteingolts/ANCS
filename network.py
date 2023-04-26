@@ -80,8 +80,8 @@ class Atom:
             and z_min <= self.z <= z_max
         ):
             return True
-        else:
-            return False
+
+        return False
 
     def on_edge(self, box: Box, delta: float) -> bool:
         delta_x = delta_y = delta_z = delta
@@ -334,7 +334,7 @@ def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
     for atom in new_atoms:
         atom.n_bonds = 0
     return (new_atoms, difference)
-    
+
 
 def get_box(file_content: List[str]) -> Box:
     # get box size (x and y only for now) from lammps data file
@@ -514,14 +514,14 @@ def main():
 
     input_file_path = sys.argv[1]
     print(f"Input file: {os.path.abspath(input_file_path)}")
-    
+
     if len(sys.argv) > 2:
         out_file_path = sys.argv[2]
     else:
         input_file_path = os.path.abspath(input_file_path)
         input_dir = os.path.dirname(input_file_path)
-        input_file_name = os.path.basename(input_file_path).split('.')[0]
-        out_file_name = ''.join((input_file_name, '_out.lmp'))
+        input_file_name = os.path.basename(input_file_path).split(".")[0]
+        out_file_name = "".join((input_file_name, "_out.lmp"))
         out_file_path = os.path.join(input_dir, out_file_name)
 
     with open(input_file_path, "r", encoding="utf8") as f:
