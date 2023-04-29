@@ -13,7 +13,7 @@ LAMMPS data file.
  -11.405491  11.405491 ylo yhi
        -0.1        0.1 zlo zhi
 
-Atoms # ['atomID', 'atomType', 'diameter', 'density', 'x', 'y', 'z']
+Atoms # ['atomID', 'moleculeID', 'atomType', 'charge', 'x', 'y', 'z']
 
     943      1      1   0.000000 -11.072396 -10.904928        0.0
     981      1      1   0.000000  -10.15106  -11.22797        0.0

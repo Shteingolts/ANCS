@@ -11,12 +11,14 @@ from math import sqrt, acos, degrees
 from copy import deepcopy
 from typing import List, TextIO
 
+from helpers import add_spaces, table_row
+
 
 class Atom:
     atom_id: int
     diameter: float
     n_bonds: int
-    bonded: set[Atom]
+    bonded: list[int]
     x: float
     y: float
     z: float
@@ -32,12 +34,13 @@ class Atom:
         self.atom_id = int(atom_id)
         self.diameter = float(diameter)
         self.n_bonds = 0
+        self.bonded = []
         self.x = float(x)
         self.y = float(y)
         self.z = float(z)
 
     def __repr__(self) -> str:
-        return f"Atom(id: {self.atom_id}, x: {self.x}, y: {self.y}, z: {self.z})"
+        return f"Atom {self.atom_id} : {self.x}, {self.y}, {self.z})."
 
     def __eq__(self, other: Atom) -> bool:
         if (
@@ -131,7 +134,7 @@ class Bond:
         self.atom1 = atom1
         self.atom2 = atom2
         self.length = atom1.dist(atom2)
-        self.bond_coefficient = 1 / (self.length**2)
+        self.bond_coefficient = 1 / (self.length ** 2)
 
     def __repr__(self) -> str:
         return f"""Bond(atom1: {self.atom1},
@@ -158,28 +161,42 @@ class Angle:
     Value in degrees.
     """
 
+    angle_id: int
     atom1: Atom
     atom2: Atom
     atom3: Atom
     energy: float
     value: float
 
-    def __init__(self, atom1: Atom, atom2: Atom, atom3: Atom, energy: float = 0.0):
+    def __init__(
+        self,
+        angle_id: int,
+        atom1: Atom,
+        atom2: Atom,
+        atom3: Atom,
+        energy: float = 0.0,
+        value: float = None,
+    ):
+        self.angle_id = angle_id
         self.atom1 = atom1
         self.atom2 = atom2
         self.atom3 = atom3
         self.energy = energy
-        v12 = [atom1.x - atom2.x, atom1.y - atom2.y, atom1.z - atom2.z]
-        v23 = [atom2.x - atom3.x, atom2.y - atom3.y, atom2.z - atom3.z]
 
-        dot_product = sum((v12[i] * v23[i] for i in range(3)))
+        if value is None:
+            v12 = [atom2.x - atom1.x, atom2.y - atom1.y, atom2.z - atom1.z]
+            v23 = [atom3.x - atom2.x, atom3.y - atom2.y, atom3.z - atom2.z]
 
-        mag_v12 = sqrt(sum((v12[i] ** 2 for i in range(3))))
-        mag_v23 = sqrt(sum((v23[i] ** 2 for i in range(3))))
+            dot_product = v12[0] * v23[0] + v12[1] * v23[1] + v12[2] * v23[2]
 
-        cos_angle = dot_product / (mag_v12 * mag_v23)
-        angle = round(degrees(acos(cos_angle)), 6)
-        self.value = min(angle, 180.0 - angle)
+            mag_v12 = sqrt(v12[0] ** 2 + v12[1] ** 2 + v12[2] ** 2)
+            mag_v23 = sqrt(v23[0] ** 2 + v23[1] ** 2 + v23[2] ** 2)
+
+            cos_angle = dot_product / (mag_v12 * mag_v23)
+            angle = round(degrees(acos(cos_angle)), 6)
+            self.value = angle
+        else:
+            self.value = value
 
     def __eq__(self, other: Angle) -> bool:
         if self.value == other.value:
@@ -193,7 +210,11 @@ class Angle:
             return hash((self.atom1, self.atom2, self.atom3))
 
     def __repr__(self) -> str:
-        return f"Angle {self.atom1.atom_id}-{self.atom2.atom_id}-{self.atom3.atom_id} = {self.value}"
+        return (
+            f"Angle {self.angle_id} : "
+            f"{self.atom1.atom_id}-{self.atom2.atom_id}"
+            f"-{self.atom3.atom_id} | {self.value} deg."
+        )
 
 
 class Dihedral:
@@ -320,7 +341,49 @@ class Box:
         self.z1, self.z2 = min(z1, z2), max(z1, z2)
 
     def __repr__(self) -> str:
-        return f"Box(x: ({self.x1}, {self.x2})\ny: ({self.y1}, {self.y2})\nz: ({self.z1}, {self.z2}))"
+        return (
+            f"Box ({round(self.x1, 3)} : {round(self.x2, 3)}) "
+            f"({round(self.y1, 3)} : {round(self.y2, 3)}) "
+            f"({round(self.z1, 3)} : {round(self.z2, 3)})"
+        )
+
+    @classmethod
+    def from_atoms(cls, file: str) -> Box:
+        with open(file, encoding="utf8") as atoms_file:
+            content = atoms_file.readlines()
+            x1, x2 = (float(content[5].split()[0]), float(content[5].split()[1]))
+            y1, y2 = (
+                float(content[6].split()[0]),
+                float(content[6].split()[1]),
+            )
+            z1, z2 = (
+                float(content[7].split()[0]),
+                float(content[7].split()[1]),
+            )
+        try:
+            return Box(x1, x2, y1, y2, z1, z2)
+        except NameError:
+            print("Failure reading box dimensions, probably not a valid input file.")
+            sys.exit(1)
+
+    @classmethod
+    def from_data_file(cls, file: str) -> Box:
+        with open(file, encoding="utf8") as data_file:
+            content = data_file.readlines()
+
+        x1, x2 = (
+            float(content[11].split()[0]),
+            float(content[11].split()[1]),
+        )
+        y1, y2 = (
+            float(content[12].split()[0]),
+            float(content[12].split()[1]),
+        )
+        z1, z2 = (
+            float(content[13].split()[0]),
+            float(content[13].split()[1]),
+        )
+        return Box(x1, x2, y1, y2, z1, z2)
 
     def resize(self, delta: float) -> Box:
         self.x1 += delta / 2
@@ -354,24 +417,33 @@ class Network:
     angles: list[Angle] or None
     dihedrals: list[Dihedral] or None
     box: Box
-    header = Header
+    header: Header
 
-    def __init__(self, atoms: list[Atom], bonds: list[Bond], box: Box, header: Header):
+    def __init__(
+        self,
+        atoms: list[Atom],
+        bonds: list[Bond],
+        box: Box,
+        header: Header,
+        angles: list = None,
+        dihedrals: list = None,
+    ):
         self.atoms = atoms
         self.bonds = bonds
         self.box = box
         self.header = header
-
-    def _sort_atoms(self):
-        self.atoms.sort(key=lambda x: x.atom_id)
+        self.angles = angles
+        self.dihedrals = dihedrals
 
     def _compute_angles(self):
         angles = set()
+        angle_id: int = 1
         for atom in self.atoms:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
                     if neighbour_k != neighbour_j:
-                        angles.add(Angle(neighbour_k, atom, neighbour_j))
+                        angles.add(Angle(angle_id, neighbour_k, atom, neighbour_j))
+                        angle_id += 1
         self.angles = list(angles)
 
     def _compute_dihedrals(self):
@@ -385,17 +457,13 @@ class Network:
             return
 
     @classmethod
-    def from_file(cls, file: str) -> Network:
+    def from_data_file(cls, file: str) -> Network:
         """
-        assumes that the lammps data file is written such that the first section
-        after header is "Atoms" and 2nd is "Bonds".
-
-        TODO: add handling of angles and other things
+        LAMMPS data file parser, returns a network.
+        At least `Atoms` and `Bonds` sections should be present in the file.
         """
         with open(file, encoding="utf8") as data_file:
             content = data_file.readlines()
-        atoms = []
-        bonds = []
 
         box = Box(
             float(content[11].split()[0]),
@@ -407,52 +475,151 @@ class Network:
         )
 
         n_atoms = int(content[1].split()[0])
-        atoms_start = 17
-        atoms_end = atoms_start + n_atoms
         n_bonds = int(content[2].split()[0])
-        bonds_start = atoms_end + 3
-        bonds_end = bonds_start + n_bonds
+        n_angles = int(content[3].split()[0])
+        n_dihedrals = int(content[4].split()[0])
 
-        for line in content[atoms_start:atoms_end]:
-            data = line.split()
-            atoms.append(
-                Atom(int(data[0]), 0.0, float(data[4]), float(data[5]), float(data[6]))
-            )
+        atoms = []
+        bonds = []
+        angles = []
+        dihedrals = []
 
-        print(f"Atoms read: {len(atoms)}")
+        location = {
+            "atoms": (),
+            "bonds": (),
+            "angles": (),
+            "dihedrals": (),
+        }
 
-        atoms.sort(key=lambda atom: atom.atom_id)
+        for index, line in enumerate(content):
+            if "Atoms" in line.strip():
+                atoms_start = index + 2
+                atoms_end = atoms_start + n_atoms
+                location["atoms"] = (atoms_start, atoms_end)
+            if "Bonds" in line.strip():
+                bonds_start = index + 2
+                bonds_end = bonds_start + n_bonds
+                location["bonds"] = (bonds_start, bonds_end)
+            if "Angles" in line.strip():
+                angles_start = index + 2
+                angles_end = angles_start + n_angles
+                location["angles"] = (angles_start, angles_end)
+            if "Dihedrals" in line.strip():
+                dihedrals_start = index + 2
+                dihedrals_end = dihedrals_start + n_dihedrals
+                location["dihedrals"] = (dihedrals_start, dihedrals_end)
 
-        for line in content[bonds_start:bonds_end]:
-            data = line.split()
-            id1 = int(data[2])
-            id2 = int(data[3])
-            bonds.append(Bond(atoms[id1 - 1], atoms[id2 - 1]))
+        if location["atoms"]:
+            print(f"Atoms expected: {n_atoms}")
+            for line in content[atoms_start:atoms_end]:
+                data = line.split()
+                atoms.append(
+                    Atom(
+                        int(data[0]),
+                        0.0,
+                        float(data[4]),
+                        float(data[5]),
+                        float(data[6]),
+                    )
+                )
+            print(f"Atoms read: {len(atoms)}")
+        else:
+            print("[ERROR]: Something went wrong when reading atoms from the file.")
 
-        print(f"Bonds read: {len(bonds)}")
+        if location["bonds"]:
+            print(f"Bonds expected: {n_bonds}")
+            atoms_map = {atom.atom_id: atom for atom in atoms}
+            for line in content[bonds_start:bonds_end]:
+                data = line.split()
+                atom1_id = int(data[2])
+                atom2_id = int(data[3])
+                atom1 = atoms_map[atom1_id]
+                atom2 = atoms_map[atom2_id]
+                bonds.append(Bond(atom1, atom2))
+
+            print(f"Bonds read: {len(bonds)}")
+        else:
+            print("[ERROR]: Something went wrong when reading bonds from the file.")
+
+        # at this point, the bare minumum for the network sould be present
+        header = Header(atoms, bonds, box)
+        network = Network(atoms, bonds, box, header)
+
+        if location["angles"]:
+            print(f"Angles expected: {n_angles}")
+            atoms_map = {atom.atom_id: atom for atom in atoms}
+            for line in content[angles_start:angles_end]:
+                data = line.split()
+                angle_id = int(data[0])
+                atom1 = atoms_map[int(data[2])]
+                atom2 = atoms_map[int(data[3])]
+                atom3 = atoms_map[int(data[4])]
+                angles.append(Angle(angle_id, atom1, atom2, atom3))
+            print(f"Angles read: {len(angles)}")
+            network.angles = angles
+            header.angles = len(angles)
+            header.angle_types = len(angles)
+        else:
+            print("No angles data have been found")
+
+        if location["dihedrals"]:
+            print(f"Dihedrals expected: {n_dihedrals}")
+            print("Dihedrals are not yet emplemented.")
+            # TODO Implement reading and writing dihedrals
+        else:
+            print("No dihedrals data have been found")
+
+        return network
+
+    @classmethod
+    def from_atoms(cls, input_file: str) -> Network:
+        """
+        Computes bonds from the atomic coordinates.
+        """
+        with open(input_file, "r", encoding="utf8") as f:
+            content = f.readlines()
+
+        box = Box.from_atoms(input_file)
+        print(f"{box}")
+        atoms = get_atoms(content)
+        bonds = make_bonds(atoms, box)
+
+        # we assume that there's at least one dangling bead
+        # if not, nothing bad will happen anyway
+        dangling_beads: int = 1
+        steps: int = 1
+        while dangling_beads > 0:
+            atoms, dangling_beads = delete_dangling(atoms)
+            bonds = make_bonds(atoms, box)
+            steps += 1
+
+        print(f"Atoms: {len(atoms)}")
+        print(f"Bonds: {len(bonds)}")
 
         header = Header(atoms, bonds, box)
 
         return Network(atoms, bonds, box, header)
 
-    def write(self, target_file: str) -> str:
+    def write_to_file(self, target_file: str) -> str:
         """
-        writes network to a file a returns the path
+        Writes network to a file a returns the path
         """
         path = os.path.abspath(os.path.join(os.getcwd(), target_file))
         with open(path, "w", encoding="utf8") as file:
+
             self.header.write_header(file)
 
             if self.atoms:
+                # write `Atoms` section
                 # 7-7-7-11-11-11-11
                 legend = ["atomID", "moleculeID", "atomType", "charge", "x", "y", "z"]
                 file.write(f"\nAtoms # {legend}\n\n")
-                for index, atom in enumerate(self.atoms):
+                for atom in self.atoms:
                     properties = [
-                        index + 1,
-                        "1",
-                        "1",
-                        "0.000000",
+                        atom.atom_id,
+                        "1",  # always 1
+                        "1",  # always the same atom type
+                        "0.000000",  # always neutral
                         round(atom.x, 6),
                         round(atom.y, 6),
                         round(atom.z, 6),
@@ -462,6 +629,7 @@ class Network:
                     file.write(line)
 
             if self.bonds:
+                # write `Bonds` section
                 # 10-10-10-10
                 legend = ["ID", "type", "atom1", "atom2"]
                 file.write(f"\nBonds # {legend}\n\n")
@@ -476,13 +644,53 @@ class Network:
                     line = table_row(properties, widths)
                     file.write(line)
 
+                # write `Bond Coeffs` section
+                # 7-11-11
+                legend = ["bondID", "bondCoeff", "d"]
+                file.write(f"\nBond Coeffs # {legend}\n\n")
+                for n, bond in enumerate(self.bonds):
+                    properties = [
+                        n + 1,
+                        round(bond.bond_coefficient, 6),
+                        round(bond.length, 6),
+                    ]
+                    widths = [7, 11, 11]
+                    line = table_row(properties, widths)
+                    file.write(line)
+
             if self.angles:
-                pass
+                # write `Angles` section
+                # 10-10-10-10-10
+                legend = ["angleID", "angleType", "atom1", "atom2", "atom3"]
+                file.write(f"\nAngles # {legend}\n\n")
+                for angle in self.angles:
+                    properties = [
+                        angle.angle_id,
+                        angle.angle_id,  # type the same as id
+                        angle.atom1.atom_id,
+                        angle.atom2.atom_id,
+                        angle.atom3.atom_id,
+                    ]
+                    widths = [10, 10, 10, 10, 10]
+                    line = table_row(properties, widths)
+                    file.write(line)
+
+                # write `Angle Coeffs` section
+                # 7-11-11
+                legend = ["angleID", "energy", "value (deg)"]
+                file.write(f"Angle Coeffs # {legend}\n\n")
+                for angle in self.angles:
+                    properties = [angle.angle_id, angle.energy, angle.value]
+                    widths = [7, 11, 11]
+                    line = table_row(properties, widths)
+                    file.write(line)
 
             if self.dihedrals:
-                pass
+                print("Writing dihedrals to a file is not implemented.")
+                # TODO Implement reading and writing dihedrals
 
         if os.path.exists(path) and os.path.getsize(path) > 0:
+            print(f"Output was written in: {os.path.abspath(path)}")
             return path
         print(f"Problem saving network to {path}")
         sys.exit(1)
@@ -504,7 +712,6 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
         # read number of atoms at the top of data file
         if "atoms" in line.split():
             n_atoms = int(line.split()[0])
-            print(f"Atoms: {n_atoms}")
         # find the Atoms part
         if "Atoms" in line.split():
             atoms_start_line = i + 2
@@ -527,47 +734,6 @@ def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
     for atom in new_atoms:
         atom.n_bonds = 0
     return (new_atoms, difference)
-
-
-def get_box(file_content: List[str]) -> Box:
-    # get box size (x and y only for now) from lammps data file
-    for i, line in enumerate(file_content):
-        if "xlo" in line:
-            x1, x2 = float(line.split()[0]), float(line.split()[1])
-            y1, y2 = (
-                float(file_content[i + 1].split()[0]),
-                float(file_content[i + 1].split()[1]),
-            )
-            z1, z2 = (
-                float(file_content[i + 2].split()[0]),
-                float(file_content[i + 2].split()[1]),
-            )
-    try:
-        return Box(x1, x2, y1, y2, z1, z2)
-    except NameError:
-        print("Failure reading box dimensions, probably not a valid input file.")
-        sys.exit(1)
-
-
-def add_spaces(string: str, width: int, indent: str = "right") -> str:
-    """
-    If the string is longer than provided width, returns the original string without change.
-    """
-    if width <= len(string):
-        return string
-    spaces_to_add = (width - len(string)) * " "
-    if indent == "right":
-        return spaces_to_add + string
-    if indent == "left":
-        return string + spaces_to_add
-
-
-def table_row(items: List, widths: List, indent: str = "right") -> str:
-    line = []
-    for item, width in zip(items, widths):
-        line.append(add_spaces(str(item), width, indent))
-
-    return "".join(line) + "\n"
 
 
 def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[Atom]:
@@ -595,39 +761,6 @@ def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[A
     return list(surrounding_atoms)
 
 
-def _make_inner_bonds(atoms: List[Atom]) -> List[Bond]:
-    bonds = set()
-    for atom_k in atoms:
-        for atom_j in atoms:
-            if atom_k != atom_j:
-                if atom_k.dist(atom_j) <= (
-                    (atom_k.diameter / 2) + (atom_j.diameter / 2)
-                ):
-                    bonds.add(Bond(atom_k, atom_j))
-                    atom_k.n_bonds += 1
-                    atom_j.n_bonds += 1
-    return list(bonds)
-
-
-def _make_outside_bonds(atoms: List[Atom], box: Box) -> List[Bond]:
-    edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
-    neighbors = make_surrounding(atoms, box)
-    edge_neighbors = [atom for atom in neighbors if atom.on_edge(box, 1.0)]
-
-    extra_bonds = set()
-    for main_atom in edges:
-        for outside_atom in edge_neighbors:
-            if main_atom != outside_atom:
-                # if the interatomic distance is less than the sum of two atomic radii,
-                # the bond is formed
-                if main_atom.dist(outside_atom) <= (
-                    (main_atom.diameter / 2) + outside_atom.diameter / 2
-                ):
-                    extra_bonds.add(Bond(main_atom, outside_atom))
-                    main_atom.n_bonds += 1
-    return list(extra_bonds)
-
-
 def make_bonds(atoms: list[Atom], box: Box) -> list:
     bonds = set()
     for atom_k in atoms:
@@ -637,8 +770,7 @@ def make_bonds(atoms: list[Atom], box: Box) -> list:
                     (atom_k.diameter / 2) + (atom_j.diameter / 2)
                 ):
                     bonds.add(Bond(atom_k, atom_j))
-                    atom_k.bonded.add(atom_j)
-                    atom_j.bonded.add(atom_k)
+                    atom_k.bonded.append(atom_j.atom_id)
                     atom_k.n_bonds += 1
 
     edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
@@ -652,49 +784,9 @@ def make_bonds(atoms: list[Atom], box: Box) -> list:
                 (main_atom.diameter / 2) + outside_atom.diameter / 2
             ):
                 extra_bonds.add(Bond(main_atom, outside_atom))
+                main_atom.bonded.append(outside_atom.atom_id)
                 main_atom.n_bonds += 1
     return list(bonds.union(extra_bonds))
-
-
-def write_atoms(file: TextIO, atoms: List[Atom]):
-    # 7-7-7-11-11-11-11
-    legend = ["atomID", "atomType", "diameter", "density", "x", "y", "z"]
-    file.write(f"\nAtoms # {legend}\n\n")
-    for index, atom in enumerate(atoms):
-        properties = [
-            index + 1,
-            "1",
-            "1",
-            "0.000000",
-            round(atom.x, 6),
-            round(atom.y, 6),
-            round(atom.z, 6),
-        ]
-        widths = [7, 7, 7, 11, 11, 11, 11]
-        line = table_row(properties, widths)
-        file.write(line)
-
-
-def write_bonds(file: TextIO, bonds: List[Bond]):
-    # 10-10-10-10
-    legend = ["ID", "type", "atom1", "atom2"]
-    file.write(f"\nBonds # {legend}\n\n")
-    for _id, bond in enumerate(bonds):
-        properties = [_id + 1, _id + 1, bond.atom1.atom_id, bond.atom2.atom_id]
-        widths = [10, 10, 10, 10]
-        line = table_row(properties, widths)
-        file.write(line)
-
-
-def write_bond_coeffs(file: TextIO, bonds: List[Bond]):
-    # 7-11-11
-    legend = ["bondID", "bondCoeff", "d"]
-    file.write(f"\nBond Coeffs # {legend}\n\n")
-    for n, bond in enumerate(bonds):
-        properties = [n + 1, round(bond.bond_coefficient, 6), round(bond.length, 6)]
-        widths = [7, 11, 11]
-        line = table_row(properties, widths)
-        file.write(line)
 
 
 def main():
@@ -719,35 +811,10 @@ def main():
         out_file_name = "".join((input_file_name, "_out.lmp"))
         out_file_path = os.path.join(input_dir, out_file_name)
 
-    with open(input_file_path, "r", encoding="utf8") as f:
-        content = f.readlines()
+    # constructing the bare minimum network from atomic coordinates
+    network = Network.from_atoms(input_file_path)
 
-    box = get_box(content)
-    atoms = get_atoms(content)
-    bonds = make_bonds(atoms, box)
-
-    # we assume that there's at least one dangling bead
-    # if not, nothing bad will happen anyway
-    dangling_beads: int = 1
-    steps: int = 1
-    while dangling_beads > 0:
-        atoms, dangling_beads = delete_dangling(atoms)
-        bonds = make_bonds(atoms, box)
-        steps += 1
-
-    print(f"Atoms: {len(atoms)}.")
-    print(f"Bonds: {len(bonds)}.")
-
-    header = Header(atoms, bonds, box)
-
-    with open(out_file_path, "w", encoding="utf8") as f:
-        header.write_header(f)
-        write_atoms(f, atoms)
-        write_bonds(f, bonds)
-        write_bond_coeffs(f, bonds)
-
-    if os.path.isfile(out_file_path) and os.stat(out_file_path).st_size != 0:
-        print(f"Output was written in: {os.path.abspath(out_file_path)}")
+    network.write_to_file(out_file_path)
 
 
 main()
