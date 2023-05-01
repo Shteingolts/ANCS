@@ -174,6 +174,7 @@ class Angle:
         atom1: Atom,
         atom2: Atom,
         atom3: Atom,
+        box: Box,
         energy: float = 0.0,
         value: float = None,
     ):
@@ -184,7 +185,32 @@ class Angle:
         self.energy = energy
 
         if value is None:
-            v12 = [atom2.x - atom1.x, atom2.y - atom1.y, atom2.z - atom1.z]
+            # stupid algorithm, but works.
+            # find all possible copies, 
+            first_atom_candidates = []
+            for x in (-1, 0, 1):
+                for y in (-1, 0, 1):
+                    for z in (-1, 0, 1):
+                        first_atom_candidates.append(deepcopy(atom1).translate(box, (x, y, z)))
+
+            third_atom_candidates = []
+            for x in (-1, 0, 1):
+                for y in (-1, 0, 1):
+                    for z in (-1, 0, 1):
+                        third_atom_candidates.append(deepcopy(atom3).translate(box, (x, y, z)))
+
+            def closest(origin_atom: Atom, candidates: list[Atom]):
+                closest_atom = candidates[0]
+
+                for atom in candidates[1:]:
+                    if origin_atom.dist(atom) < origin_atom.dist(closest_atom):
+                        closest_atom = atom
+                return closest_atom
+            
+            atom1 = closest(atom2, first_atom_candidates)
+            atom3 = closest(atom2, third_atom_candidates)
+            
+            v12 = [atom1.x - atom2.x, atom1.y - atom2.y, atom1.z - atom2.z]
             v23 = [atom3.x - atom2.x, atom3.y - atom2.y, atom3.z - atom2.z]
 
             dot_product = v12[0] * v23[0] + v12[1] * v23[1] + v12[2] * v23[2]
@@ -213,7 +239,7 @@ class Angle:
         return (
             f"Angle {self.angle_id} : "
             f"{self.atom1.atom_id}-{self.atom2.atom_id}"
-            f"-{self.atom3.atom_id} | {self.value} deg."
+            f"-{self.atom3.atom_id} | {round(self.value, 2)} ({round(180 - self.value, 2)}) deg."
         )
 
 
@@ -442,7 +468,7 @@ class Network:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
                     if neighbour_k != neighbour_j:
-                        angles.add(Angle(angle_id, neighbour_k, atom, neighbour_j))
+                        angles.add(Angle(angle_id, neighbour_k, atom, neighbour_j, self.box))
                         angle_id += 1
         self.angles = list(angles)
 
@@ -554,7 +580,7 @@ class Network:
                 atom1 = atoms_map[int(data[2])]
                 atom2 = atoms_map[int(data[3])]
                 atom3 = atoms_map[int(data[4])]
-                angles.append(Angle(angle_id, atom1, atom2, atom3))
+                angles.append(Angle(angle_id, atom1, atom2, atom3, box))
             print(f"Angles read: {len(angles)}")
             network.angles = angles
             header.angles = len(angles)
