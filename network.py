@@ -645,9 +645,7 @@ class Network:
         print(f"Bonds: {len(bonds)}")
 
         angles = Network._compute_angles(atoms, box)
-
         header = Header(atoms, bonds, box, angles=angles)
-
         return Network(atoms, bonds, box, header, angles=angles)
 
     def write_to_file(self, target_file: str) -> str:
@@ -867,10 +865,4 @@ def main():
     network.write_to_file(out_file_path)
 
 
-# main()
-
-stripped_file = "C:\\Users\\serge\\Desktop\\cfg_stripped.lmp"
-
-network = Network.from_data_file(stripped_file)
-
-network.write_to_file("C:\\Users\\serge\\Desktop\\cfg_custom.lmp")
+main()
