@@ -465,18 +465,26 @@ class Network:
         self.angles = angles
         self.dihedrals = dihedrals
 
-    def _compute_angles(self):
+    @staticmethod
+    def _compute_angles(atoms: list[Atom], box: Box) -> list[Angle]:
+        atoms_map = {atom.atom_id: atom for atom in atoms}
         angles = set()
         angle_id: int = 1
-        for atom in self.atoms:
+        for atom in atoms:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
-                    if neighbour_k != neighbour_j:
+                    if atoms_map[neighbour_k] != atoms_map[neighbour_j]:
                         angles.add(
-                            Angle(angle_id, neighbour_k, atom, neighbour_j, self.box)
+                            Angle(
+                                angle_id,
+                                atoms_map[neighbour_k],
+                                atom,
+                                atoms_map[neighbour_j],
+                                box,
+                            )
                         )
                         angle_id += 1
-        self.angles = list(angles)
+        return list(angles)
 
     def _compute_dihedrals(self):
         raise NotImplementedError("not yet...")
@@ -567,6 +575,8 @@ class Network:
                 atom2_id = int(data[3])
                 atom1 = atoms_map[atom1_id]
                 atom2 = atoms_map[atom2_id]
+                atom1.bonded.append(atom2_id)
+                atom2.bonded.append(atom1_id)
                 bonds.append(Bond(atom1, atom2))
 
             print(f"Bonds read: {len(bonds)}")
@@ -575,7 +585,7 @@ class Network:
 
         # at this point, the bare minumum for the network sould be present
         header = Header(atoms, bonds, box)
-        network = Network(atoms, bonds, box, header)
+        local_network = Network(atoms, bonds, box, header)
 
         if location["angles"]:
             print(f"Angles expected: {n_angles}")
@@ -588,11 +598,17 @@ class Network:
                 atom3 = atoms_map[int(data[4])]
                 angles.append(Angle(angle_id, atom1, atom2, atom3, box))
             print(f"Angles read: {len(angles)}")
-            network.angles = angles
+            local_network.angles = angles
             header.angles = len(angles)
             header.angle_types = len(angles)
         else:
-            print("No angles data have been found")
+            print("No angle data have been found")
+            print("Calculating angles..")
+            angles = Network._compute_angles(atoms, box)
+            local_network.angles = angles
+            header.angles = len(angles)
+            header.angle_types = len(angles)
+            print(f"Angles calculated: {len(angles)}")
 
         if location["dihedrals"]:
             print(f"Dihedrals expected: {n_dihedrals}")
@@ -601,7 +617,7 @@ class Network:
         else:
             print("No dihedrals data have been found")
 
-        return network
+        return local_network
 
     @classmethod
     def from_atoms(cls, input_file: str) -> Network:
@@ -628,9 +644,11 @@ class Network:
         print(f"Atoms: {len(atoms)}")
         print(f"Bonds: {len(bonds)}")
 
-        header = Header(atoms, bonds, box)
+        angles = Network._compute_angles(atoms, box)
 
-        return Network(atoms, bonds, box, header)
+        header = Header(atoms, bonds, box, angles=angles)
+
+        return Network(atoms, bonds, box, header, angles=angles)
 
     def write_to_file(self, target_file: str) -> str:
         """
@@ -849,4 +867,10 @@ def main():
     network.write_to_file(out_file_path)
 
 
-main()
+# main()
+
+stripped_file = "C:\\Users\\serge\\Desktop\\cfg_stripped.lmp"
+
+network = Network.from_data_file(stripped_file)
+
+network.write_to_file("C:\\Users\\serge\\Desktop\\cfg_custom.lmp")
