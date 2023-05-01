@@ -186,18 +186,22 @@ class Angle:
 
         if value is None:
             # stupid algorithm, but works.
-            # find all possible copies, 
+            # find all possible copies,
             first_atom_candidates = []
             for x in (-1, 0, 1):
                 for y in (-1, 0, 1):
                     for z in (-1, 0, 1):
-                        first_atom_candidates.append(deepcopy(atom1).translate(box, (x, y, z)))
+                        first_atom_candidates.append(
+                            deepcopy(atom1).translate(box, (x, y, z))
+                        )
 
             third_atom_candidates = []
             for x in (-1, 0, 1):
                 for y in (-1, 0, 1):
                     for z in (-1, 0, 1):
-                        third_atom_candidates.append(deepcopy(atom3).translate(box, (x, y, z)))
+                        third_atom_candidates.append(
+                            deepcopy(atom3).translate(box, (x, y, z))
+                        )
 
             def closest(origin_atom: Atom, candidates: list[Atom]):
                 closest_atom = candidates[0]
@@ -206,10 +210,10 @@ class Angle:
                     if origin_atom.dist(atom) < origin_atom.dist(closest_atom):
                         closest_atom = atom
                 return closest_atom
-            
+
             atom1 = closest(atom2, first_atom_candidates)
             atom3 = closest(atom2, third_atom_candidates)
-            
+
             v12 = [atom1.x - atom2.x, atom1.y - atom2.y, atom1.z - atom2.z]
             v23 = [atom3.x - atom2.x, atom3.y - atom2.y, atom3.z - atom2.z]
 
@@ -468,7 +472,9 @@ class Network:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
                     if neighbour_k != neighbour_j:
-                        angles.add(Angle(angle_id, neighbour_k, atom, neighbour_j, self.box))
+                        angles.add(
+                            Angle(angle_id, neighbour_k, atom, neighbour_j, self.box)
+                        )
                         angle_id += 1
         self.angles = list(angles)
 
