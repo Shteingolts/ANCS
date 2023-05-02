@@ -16,6 +16,7 @@ from helpers import add_spaces, table_row
 
 class Atom:
     atom_id: int
+    atom_type: int
     diameter: float
     n_bonds: int
     bonded: list[int]
@@ -30,8 +31,10 @@ class Atom:
         x: float or int,
         y: float or int,
         z: float or int,
+        atom_type: int = 1,
     ):
         self.atom_id = int(atom_id)
+        self.atom_type = atom_type
         self.diameter = float(diameter)
         self.n_bonds = 0
         self.bonded = []
@@ -278,7 +281,7 @@ class Header:
         angles: List or None = None,
         dihedrals: List or None = None,
         impropers: List or None = None,
-        atom_types: int = 1,
+        atom_types: int = 1,  # defaults to one
         bond_types: int = 0,
         angle_types: int = 0,
         dihedral_types: int = 0,
@@ -446,6 +449,7 @@ class Network:
     bonds: list[Bond]
     angles: list[Angle] or None
     dihedrals: list[Dihedral] or None
+    masses: dict[int:float] or None
     box: Box
     header: Header
 
@@ -455,8 +459,9 @@ class Network:
         bonds: list[Bond],
         box: Box,
         header: Header,
-        angles: list = None,
-        dihedrals: list = None,
+        angles: list[Angle] = None,
+        dihedrals: list[Dihedral] = None,
+        masses: dict or None = None,
     ):
         self.atoms = atoms
         self.bonds = bonds
@@ -464,12 +469,12 @@ class Network:
         self.header = header
         self.angles = angles
         self.dihedrals = dihedrals
+        self.masses = masses
 
     @staticmethod
     def _compute_angles(atoms: list[Atom], box: Box) -> list[Angle]:
         atoms_map = {atom.atom_id: atom for atom in atoms}
         angles = set()
-        angle_id: int = 0
         for atom in atoms:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
@@ -663,9 +668,9 @@ class Network:
                 for atom in self.atoms:
                     properties = [
                         atom.atom_id,
-                        "1",  # always 1
-                        "1",  # always the same atom type
-                        "0.000000",  # always neutral
+                        "1",  # always 1 for now
+                        atom.atom_type,  # defaults to 1 when construsted if not otherwise specified
+                        "0.000000",  # always neutral for now
                         round(atom.x, 6),
                         round(atom.y, 6),
                         round(atom.z, 6),
@@ -673,6 +678,9 @@ class Network:
                     widths = [7, 7, 7, 11, 11, 11, 11]
                     line = table_row(properties, widths)
                     file.write(line)
+
+            file.write(f"\n# Masses\n\n")
+            file.write("# Uncomment and replace this with proper values by hand\n")
 
             if self.bonds:
                 # write `Bonds` section
