@@ -134,7 +134,7 @@ class Bond:
         self.atom1 = atom1
         self.atom2 = atom2
         self.length = atom1.dist(atom2)
-        self.bond_coefficient = 1 / (self.length ** 2)
+        self.bond_coefficient = 1 / (self.length**2)
 
     def __repr__(self) -> str:
         return f"""Bond(atom1: {self.atom1},
@@ -469,21 +469,20 @@ class Network:
     def _compute_angles(atoms: list[Atom], box: Box) -> list[Angle]:
         atoms_map = {atom.atom_id: atom for atom in atoms}
         angles = set()
-        angle_id: int = 1
+        angle_id: int = 0
         for atom in atoms:
             for neighbour_k in atom.bonded:
                 for neighbour_j in atom.bonded:
                     if atoms_map[neighbour_k] != atoms_map[neighbour_j]:
                         angles.add(
                             Angle(
-                                angle_id,
+                                len(angles) + 1,
                                 atoms_map[neighbour_k],
                                 atom,
                                 atoms_map[neighbour_j],
                                 box,
                             )
                         )
-                        angle_id += 1
         return list(angles)
 
     def _compute_dihedrals(self):
@@ -654,7 +653,6 @@ class Network:
         """
         path = os.path.abspath(os.path.join(os.getcwd(), target_file))
         with open(path, "w", encoding="utf8") as file:
-
             self.header.write_header(file)
 
             if self.atoms:
