@@ -1,5 +1,6 @@
 """
-A simple utility script, which takes lammps dump output and turns it into a lammps-readable file.
+A simple utility script, which takes lammps dump output and turns it
+into a lammps-readable file.
 v. 0.1.0
 """
 
@@ -7,8 +8,8 @@ from __future__ import annotations
 
 import os
 import sys
-from math import sqrt, acos, degrees
 from copy import deepcopy
+from math import acos, degrees, sqrt
 from typing import List, TextIO
 
 from helpers import add_spaces, table_row
@@ -246,7 +247,8 @@ class Angle:
         return (
             f"Angle {self.angle_id} : "
             f"{self.atom1.atom_id}-{self.atom2.atom_id}"
-            f"-{self.atom3.atom_id} | {round(self.value, 2)} ({round(180 - self.value, 2)}) deg."
+            f"-{self.atom3.atom_id} | {round(self.value, 2)} "
+            f"({round(180 - self.value, 2)}) deg."
         )
 
 
@@ -526,7 +528,7 @@ class Network:
         atoms = []
         bonds = []
         angles = []
-        dihedrals = []
+        # dihedrals = []
 
         location = {
             "atoms": (),
@@ -669,7 +671,7 @@ class Network:
                     properties = [
                         atom.atom_id,
                         "1",  # always 1 for now
-                        atom.atom_type,  # defaults to 1 when construsted if not otherwise specified
+                        atom.atom_type,  # defaults to 1 when construsted
                         "0.000000",  # always neutral for now
                         round(atom.x, 6),
                         round(atom.y, 6),
@@ -679,7 +681,7 @@ class Network:
                     line = table_row(properties, widths)
                     file.write(line)
 
-            file.write(f"\n# Masses\n\n")
+            file.write("\n# Masses\n\n")
             file.write("# Uncomment and replace this with proper values by hand\n")
 
             if self.bonds:
