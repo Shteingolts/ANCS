@@ -447,9 +447,9 @@ class Box:
 class Network:
     atoms: list[Atom]
     bonds: list[Bond]
-    angles: list[Angle] or None
-    dihedrals: list[Dihedral] or None
-    masses: dict[int:float] or None
+    angles: list[Angle] | None
+    dihedrals: list[Dihedral] | None
+    masses: dict[int, float] | None
     box: Box
     header: Header
 
@@ -461,7 +461,7 @@ class Network:
         header: Header,
         angles: list[Angle] = None,
         dihedrals: list[Dihedral] = None,
-        masses: dict or None = None,
+        masses: dict[int, float] = None,
     ):
         self.atoms = atoms
         self.bonds = bonds
@@ -499,6 +499,19 @@ class Network:
         except ValueError:
             print(f"[ERROR] Bond {bond} is not in the network!")
             return
+
+    def set_source_beads(
+        self, source_beads: tuple[int, int], source_beads_mass: float = 1_000_000.0
+    ):
+        """
+        Changes the types of atoms of target beads from 1 to 2.
+        """
+        atoms_map = {atom.atom_id: atom for atom in self.atoms}
+
+        atoms_map[source_beads[0]].atom_type = 2
+        atoms_map[source_beads[1]].atom_type = 2
+
+        self.masses = {1: 1.0, 2: source_beads_mass}
 
     @classmethod
     def from_atoms(
