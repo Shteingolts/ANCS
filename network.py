@@ -501,9 +501,19 @@ class Network:
             return
 
     @classmethod
-    def from_atoms(cls, input_file: str) -> Network:
+    def from_atoms(
+        cls, input_file: str, include_angles=True, include_dihedrals=True, zero_z=True
+    ) -> Network:
         """
-        Computes bonds from the atomic coordinates.
+        Reads the lammps data file with only atoms present.
+        Returns a `Network` object.
+
+        Arguments:
+
+        - `input_file` : str - path to the lammps data file
+        - `include_angles` : bool - whether to include (read or calculate) angles
+        - `inclue_dihedrals` : bool - whether to include (read or calculate) dihedrals
+        - `zero_z` : bool - whether to set the z coordinates to zero (for 2D networks)
         """
         with open(input_file, "r", encoding="utf8") as f:
             content = f.readlines()
@@ -522,15 +532,32 @@ class Network:
             bonds = make_bonds(atoms, box)
             steps += 1
 
+        if zero_z:
+            for atom in atoms:
+                atom.z = 0.0
+
         print(f"Atoms: {len(atoms)}")
         print(f"Bonds: {len(bonds)}")
 
-        angles = Network._compute_angles(atoms, box)
+        angles = Network._compute_angles(atoms, box) if include_angles else None
+
         header = Header(atoms, bonds, box, angles=angles)
         return Network(atoms, bonds, box, header, angles=angles)
 
     @classmethod
-    def from_data_file(cls, input_file: str) -> Network:
+    def from_data_file(
+        cls, input_file: str, include_angles=True, include_dihedrals=True, zero_z=True
+    ) -> Network:
+        """
+        Reads the lammps data file and returns a `Network` object.
+
+        Arguments:
+
+        - `input_file` : str - path to the lammps data file
+        - `include_angles` : bool - whether to include (read or calculate) angles
+        - `inclue_dihedrals` : bool - whether to include (read or calculate) dihedrals
+        - `zero_z` : bool - whether to set the z coordinates to zero (for 2D networks)
+        """
         box = Box.from_data_file(input_file)
 
         with open(input_file, "r", encoding="utf8") as f:
@@ -599,13 +626,17 @@ class Network:
             print(f"Atoms expected: {n_atoms}")
             for line in content[atoms_start:atoms_end]:
                 data = line.split()
+                atom_id = int(data[0])
+                x_coord = float(data[4])
+                y_coord = float(data[5])
+                z_coord = 0 if zero_z else float(data[6])
                 atoms.append(
                     Atom(
-                        int(data[0]),
+                        atom_id,
                         0.0,
-                        float(data[4]),
-                        float(data[5]),
-                        float(data[6]),
+                        x_coord,
+                        y_coord,
+                        z_coord,
                     )
                 )
             print(f"Atoms read: {len(atoms)}")
@@ -635,33 +666,47 @@ class Network:
 
         if location["angles"]:
             print(f"Angles expected: {n_angles}")
-            atoms_map = {atom.atom_id: atom for atom in atoms}
-            for line in content[angles_start:angles_end]:
-                data = line.split()
-                angle_id = int(data[0])
-                atom1 = atoms_map[int(data[2])]
-                atom2 = atoms_map[int(data[3])]
-                atom3 = atoms_map[int(data[4])]
-                angles.append(Angle(angle_id, atom1, atom2, atom3, box))
-            print(f"Angles read: {len(angles)}")
-            local_network.angles = angles
-            header.angles = len(angles)
-            header.angle_types = len(angles)
+            if include_angles is True:
+                atoms_map = {atom.atom_id: atom for atom in atoms}
+                for line in content[angles_start:angles_end]:
+                    data = line.split()
+                    angle_id = int(data[0])
+                    atom1 = atoms_map[int(data[2])]
+                    atom2 = atoms_map[int(data[3])]
+                    atom3 = atoms_map[int(data[4])]
+                    angles.append(Angle(angle_id, atom1, atom2, atom3, box))
+                print(f"Angles read: {len(angles)}")
+                local_network.angles = angles
+                header.angles = len(angles)
+                header.angle_types = len(angles)
+            else:
+                print("Angles are not included")
         else:
             print("No angle data have been found")
-            print("Calculating angles..")
-            angles = Network._compute_angles(atoms, box)
-            local_network.angles = angles
-            header.angles = len(angles)
-            header.angle_types = len(angles)
-            print(f"Angles calculated: {len(angles)}")
+            if include_angles is True:
+                print("Calculating angles..")
+                angles = Network._compute_angles(atoms, box)
+                local_network.angles = angles
+                header.angles = len(angles)
+                header.angle_types = len(angles)
+                print(f"Angles calculated: {len(angles)}")
+            else:
+                print("Angles are not included")
 
         if location["dihedrals"]:
-            print(f"Dihedrals expected: {n_dihedrals}")
-            print("Dihedrals are not yet emplemented.")
             # TODO Implement reading and writing dihedrals
+            print(f"Dihedrals expected: {n_dihedrals}")
+            if include_dihedrals is True:
+                print("Dihedrals are not yet emplemented.")
+            else:
+                print("Dihedrals are not included")
+
         else:
             print("No dihedrals data have been found")
+            if include_dihedrals is True:
+                print("Dihedrals are not yet emplemented.")
+            else:
+                print("Dihedrals are not included")
 
         return local_network
 
@@ -799,7 +844,9 @@ def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
     new_atoms = [atom for atom in atoms if atom.n_bonds > 2]
     difference = len(atoms) - len(new_atoms)
     for atom in new_atoms:
+        # erase information about the number of bonds and bonded neighbour ids
         atom.n_bonds = 0
+        atom.bonded = []
     return (new_atoms, difference)
 
 
@@ -884,4 +931,4 @@ def main():
     network.write_to_file(out_file_path)
 
 
-# main()
+main()
