@@ -330,7 +330,7 @@ class Header:
                 self.improper_types = improper_types
 
     def write_header(self, file: TextIO) -> None:
-        file.write("LAMMPS data file.\n")
+        file.write("LAMMPS data file.\n\n")
         file.write(add_spaces(f"{str(self.atoms)}", 7))
         file.write(" atoms\n")
         file.write(add_spaces(f"{str(self.bonds)}", 7))
@@ -406,18 +406,16 @@ class Box:
         with open(file, encoding="utf8") as data_file:
             content = data_file.readlines()
 
-        x1, x2 = (
-            float(content[11].split()[0]),
-            float(content[11].split()[1]),
-        )
-        y1, y2 = (
-            float(content[12].split()[0]),
-            float(content[12].split()[1]),
-        )
-        z1, z2 = (
-            float(content[13].split()[0]),
-            float(content[13].split()[1]),
-        )
+        for index, line in enumerate(content):
+            if "xlo" in line:
+                x1 = float(content[index].split()[0])
+                x2 = float(content[index].split()[1])
+                y1 = float(content[index + 1].split()[0])
+                y2 = float(content[index + 1].split()[1])
+                z1 = float(content[index + 2].split()[0])
+                z2 = float(content[index + 2].split()[1])
+                break
+
         return Box(x1, x2, y1, y2, z1, z2)
 
     def resize(self, delta: float) -> Box:
@@ -503,27 +501,69 @@ class Network:
             return
 
     @classmethod
-    def from_data_file(cls, file: str) -> Network:
+    def from_atoms(cls, input_file: str) -> Network:
         """
-        LAMMPS data file parser, returns a network.
-        At least `Atoms` and `Bonds` sections should be present in the file.
+        Computes bonds from the atomic coordinates.
         """
-        with open(file, encoding="utf8") as data_file:
-            content = data_file.readlines()
+        with open(input_file, "r", encoding="utf8") as f:
+            content = f.readlines()
 
-        box = Box(
-            float(content[11].split()[0]),
-            float(content[11].split()[1]),
-            float(content[12].split()[0]),
-            float(content[12].split()[1]),
-            float(content[13].split()[0]),
-            float(content[13].split()[1]),
-        )
+        box = Box.from_atoms(input_file)
+        print(f"{box}")
+        atoms = get_atoms(content)
+        bonds = make_bonds(atoms, box)
 
-        n_atoms = int(content[1].split()[0])
-        n_bonds = int(content[2].split()[0])
-        n_angles = int(content[3].split()[0])
-        n_dihedrals = int(content[4].split()[0])
+        # we assume that there's at least one dangling bead
+        # if not, nothing bad will happen anyway
+        dangling_beads: int = 1
+        steps: int = 1
+        while dangling_beads > 0:
+            atoms, dangling_beads = delete_dangling(atoms)
+            bonds = make_bonds(atoms, box)
+            steps += 1
+
+        print(f"Atoms: {len(atoms)}")
+        print(f"Bonds: {len(bonds)}")
+
+        angles = Network._compute_angles(atoms, box)
+        header = Header(atoms, bonds, box, angles=angles)
+        return Network(atoms, bonds, box, header, angles=angles)
+
+    @classmethod
+    def from_data_file(cls, input_file: str) -> Network:
+        box = Box.from_data_file(input_file)
+
+        with open(input_file, "r", encoding="utf8") as f:
+            content = f.readlines()
+
+        header_contents = {
+            "atoms": 0,
+            "bonds": 0,
+            "angles": 0,
+            "dihedrals": 0,
+            "impropers": 0,
+            "atom types": 0,
+            "bond types": 0,
+            "angle types": 0,
+            "dihedral types": 0,
+            "improper types": 0,
+        }
+        # first line is reserved for additional info
+        # second line in blank
+        for line in content[2:]:
+            if line.isspace():
+                break
+            prop = " ".join(line.strip().split()[1:])
+            if prop not in header_contents:
+                break
+            else:
+                value = int(line.strip().split()[0])
+                header_contents[prop] = value
+
+        n_atoms = header_contents["atoms"]
+        n_bonds = header_contents["bonds"]
+        n_angles = header_contents["angles"]
+        n_dihedrals = header_contents["dihedrals"]
 
         atoms = []
         bonds = []
@@ -624,35 +664,6 @@ class Network:
             print("No dihedrals data have been found")
 
         return local_network
-
-    @classmethod
-    def from_atoms(cls, input_file: str) -> Network:
-        """
-        Computes bonds from the atomic coordinates.
-        """
-        with open(input_file, "r", encoding="utf8") as f:
-            content = f.readlines()
-
-        box = Box.from_atoms(input_file)
-        print(f"{box}")
-        atoms = get_atoms(content)
-        bonds = make_bonds(atoms, box)
-
-        # we assume that there's at least one dangling bead
-        # if not, nothing bad will happen anyway
-        dangling_beads: int = 1
-        steps: int = 1
-        while dangling_beads > 0:
-            atoms, dangling_beads = delete_dangling(atoms)
-            bonds = make_bonds(atoms, box)
-            steps += 1
-
-        print(f"Atoms: {len(atoms)}")
-        print(f"Bonds: {len(bonds)}")
-
-        angles = Network._compute_angles(atoms, box)
-        header = Header(atoms, bonds, box, angles=angles)
-        return Network(atoms, bonds, box, header, angles=angles)
 
     def write_to_file(self, target_file: str) -> str:
         """
@@ -873,4 +884,4 @@ def main():
     network.write_to_file(out_file_path)
 
 
-main()
+# main()
