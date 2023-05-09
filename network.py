@@ -515,7 +515,12 @@ class Network:
 
     @classmethod
     def from_atoms(
-        cls, input_file: str, include_angles=True, include_dihedrals=True, zero_z=True
+        cls,
+        input_file: str,
+        include_angles=True,
+        include_dihedrals=True,
+        zero_z=True,
+        include_default_masses=True,
     ) -> Network:
         """
         Reads the lammps data file with only atoms present.
@@ -559,7 +564,12 @@ class Network:
 
     @classmethod
     def from_data_file(
-        cls, input_file: str, include_angles=True, include_dihedrals=True, zero_z=True
+        cls,
+        input_file: str,
+        include_angles=True,
+        include_dihedrals=True,
+        zero_z=True,
+        include_default_masses=True,
     ) -> Network:
         """
         Reads the lammps data file and returns a `Network` object.
@@ -570,6 +580,8 @@ class Network:
         - `include_angles` : bool - whether to include (read or calculate) angles
         - `inclue_dihedrals` : bool - whether to include (read or calculate) dihedrals
         - `zero_z` : bool - whether to set the z coordinates to zero (for 2D networks)
+        - `include_default_masses` : bool - whether to include the default the default
+                                            mass of 1 unit for all atom types
         """
         box = Box.from_data_file(input_file)
 
@@ -601,6 +613,7 @@ class Network:
                 header_contents[prop] = value
 
         n_atoms = header_contents["atoms"]
+        n_atom_types = header_contents["atom types"]
         n_bonds = header_contents["bonds"]
         n_angles = header_contents["angles"]
         n_dihedrals = header_contents["dihedrals"]
@@ -615,6 +628,7 @@ class Network:
             "bonds": (),
             "angles": (),
             "dihedrals": (),
+            "masses": (),
         }
 
         for index, line in enumerate(content):
@@ -634,23 +648,22 @@ class Network:
                 dihedrals_start = index + 2
                 dihedrals_end = dihedrals_start + n_dihedrals
                 location["dihedrals"] = (dihedrals_start, dihedrals_end)
+            if "Masses" in line.strip():
+                masses_start = index + 2
+                masses_end = masses_start + n_atom_types
+                location["masses"] = (masses_start, masses_end)
 
         if location["atoms"]:
             print(f"Atoms expected: {n_atoms}")
             for line in content[atoms_start:atoms_end]:
                 data = line.split()
                 atom_id = int(data[0])
+                atom_type = int(data[2])
                 x_coord = float(data[4])
                 y_coord = float(data[5])
                 z_coord = 0 if zero_z else float(data[6])
                 atoms.append(
-                    Atom(
-                        atom_id,
-                        0.0,
-                        x_coord,
-                        y_coord,
-                        z_coord,
-                    )
+                    Atom(atom_id, 0.0, x_coord, y_coord, z_coord, atom_type=atom_type)
                 )
             print(f"Atoms read: {len(atoms)}")
         else:
@@ -674,7 +687,7 @@ class Network:
             print("[ERROR]: Something went wrong when reading bonds from the file.")
 
         # at this point, the bare minumum for the network sould be present
-        header = Header(atoms, bonds, box)
+        header = Header(atoms, bonds, box, atom_types=n_atom_types)
         local_network = Network(atoms, bonds, box, header)
 
         if location["angles"]:
@@ -713,13 +726,29 @@ class Network:
                 print("Dihedrals are not yet emplemented.")
             else:
                 print("Dihedrals are not included")
-
         else:
             print("No dihedrals data have been found")
             if include_dihedrals is True:
                 print("Dihedrals are not yet emplemented.")
             else:
                 print("Dihedrals are not included")
+
+        if location["masses"]:
+            masses = {}
+            for line in content[masses_start:masses_end]:
+                data = line.split()
+                masses[int(data[0])] = float(data[1])
+
+            print("Found mass info: ")
+            for key, value in masses.items():
+                print(f"    Atom type: {key}, mass: {value} units")
+            local_network.masses = masses
+        else:
+            print("No masses data have been found")
+            if include_default_masses is True:
+                print("Assigning default mass of 1.0 to all atom types.")
+                masses = {atom_type: 1.0 for atom_type in range(1, n_atom_types + 1)}
+                local_network.masses = masses
 
         return local_network
 
@@ -739,9 +768,9 @@ class Network:
                 for atom in self.atoms:
                     properties = [
                         atom.atom_id,
-                        "1",  # always 1 for now
+                        "1",  # molecule ID. always 1 for now
                         atom.atom_type,  # defaults to 1 when construsted
-                        "0.000000",  # always neutral for now
+                        "0.000000",  # charge. always neutral for now
                         round(atom.x, 6),
                         round(atom.y, 6),
                         round(atom.z, 6),
@@ -750,8 +779,10 @@ class Network:
                     line = table_row(properties, widths)
                     file.write(line)
 
-            file.write("\n# Masses\n\n")
-            file.write("# Uncomment and replace this with proper values by hand\n")
+            if self.masses:
+                file.write("\nMasses # ['atom_id', 'mass']\n\n")
+                for key, value in self.masses.items():
+                    file.write(" ".join([str(key), str(float(value))]) + "\n")
 
             if self.bonds:
                 # write `Bonds` section
@@ -845,6 +876,7 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
     # Go line-by-line extracting useful info
     for atom_line in file_contents[atoms_start_line:atoms_end_line]:
         atom_id = atom_line.strip().split()[0]
+        atom_type = atom_line.strip().split()[1]
         atom_diameter = atom_line.strip().split()[2]
         x = atom_line.split()[4]
         y = atom_line.split()[5]
@@ -944,4 +976,10 @@ def main():
     network.write_to_file(out_file_path)
 
 
-main()
+# main()
+
+network = Network.from_data_file(
+    os.path.join(os.path.expanduser("~"), "work", "tuning", "network.lmp")
+)
+
+network.write_to_file(os.path.join(os.path.expanduser("~"), "example_masses2.lmp"))
