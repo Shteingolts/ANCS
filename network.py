@@ -125,7 +125,7 @@ class Atom:
 
 class Bond:
     """
-    All bonds haver the same elasticity. The bond coefficient is 1 / d^2,
+    All bonds have the same elasticity. The bond coefficient is 1 / d^2,
     where d is the bond length.
     """
 
@@ -134,10 +134,22 @@ class Bond:
     length: float
     bond_coefficient: float
 
-    def __init__(self, atom1: Atom, atom2: Atom):
+    def __init__(self, atom1: Atom, atom2: Atom, box: Box):
+        # crude hack for 2D only
         self.atom1 = atom1
-        self.atom2 = atom2
-        self.length = atom1.dist(atom2)
+
+        atom2_candidates = make_surrounding([atom2], box)
+        atom2_candidates.append(atom2)
+
+        min_dist = 10.0
+        closest: Atom = atom2
+        for candidate in atom2_candidates:
+            if atom1.dist(candidate) < min_dist:
+                min_dist = atom1.dist(candidate)
+                closest = candidate
+
+        self.atom2 = closest
+        self.length = atom1.dist(closest)
         self.bond_coefficient = 1 / (self.length**2)
 
     def __repr__(self) -> str:
@@ -350,14 +362,14 @@ class Header:
         file.write(" dihedral types\n")
         file.write(add_spaces(f"{str(self.improper_types)}", 7))
         file.write(" improper types\n")
-        file.write(add_spaces(f"{str(round(self.box_dimensions[0], 6))}", 11))
-        file.write(add_spaces(f"{str(round(self.box_dimensions[1], 6))}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[0], 6), '.6f')}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[1], 6), '.6f')}", 11))
         file.write(" xlo xhi\n")
-        file.write(add_spaces(f"{str(round(self.box_dimensions[2], 6))}", 11))
-        file.write(add_spaces(f"{str(round(self.box_dimensions[3], 6))}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[2], 6), '.6f')}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[3], 6), '.6f')}", 11))
         file.write(" ylo yhi\n")
-        file.write(add_spaces(f"{str(round(self.box_dimensions[4], 6))}", 11))
-        file.write(add_spaces(f"{str(round(self.box_dimensions[5], 6))}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[4], 6), '.6f')}", 11))
+        file.write(add_spaces(f"{format(round(self.box_dimensions[5], 6), '.6f')}", 11))
         file.write(" zlo zhi\n")
 
 
@@ -381,24 +393,24 @@ class Box:
             f"({round(self.z1, 3)} : {round(self.z2, 3)})"
         )
 
-    @classmethod
-    def from_atoms(cls, file: str) -> Box:
-        with open(file, encoding="utf8") as atoms_file:
-            content = atoms_file.readlines()
-            x1, x2 = (float(content[5].split()[0]), float(content[5].split()[1]))
-            y1, y2 = (
-                float(content[6].split()[0]),
-                float(content[6].split()[1]),
-            )
-            z1, z2 = (
-                float(content[7].split()[0]),
-                float(content[7].split()[1]),
-            )
-        try:
-            return Box(x1, x2, y1, y2, z1, z2)
-        except NameError:
-            print("Failure reading box dimensions, probably not a valid input file.")
-            sys.exit(1)
+    # @classmethod
+    # def from_atoms(cls, file: str) -> Box:
+    #     with open(file, encoding="utf8") as atoms_file:
+    #         content = atoms_file.readlines()
+    #         x1, x2 = (float(content[5].split()[0]), float(content[5].split()[1]))
+    #         y1, y2 = (
+    #             float(content[6].split()[0]),
+    #             float(content[6].split()[1]),
+    #         )
+    #         z1, z2 = (
+    #             float(content[7].split()[0]),
+    #             float(content[7].split()[1]),
+    #         )
+    #     try:
+    #         return Box(x1, x2, y1, y2, z1, z2)
+    #     except NameError:
+    #         print("Failure reading box dimensions, probably not a valid input file.")
+    #         sys.exit(1)
 
     @classmethod
     def from_data_file(cls, file: str) -> Box:
@@ -538,7 +550,7 @@ class Network:
         with open(input_file, "r", encoding="utf8") as f:
             content = f.readlines()
 
-        box = Box.from_atoms(input_file)
+        box = Box.from_data_file(input_file)
         print(f"{box}")
         atoms = get_atoms(content)
         bonds = make_bonds(atoms, box)
@@ -631,6 +643,7 @@ class Network:
             "angles": tuple(),
             "dihedrals": tuple(),
             "masses": tuple(),
+            "bond_coeffs": tuple(),
         }
 
         for index, line in enumerate(content):
@@ -642,6 +655,10 @@ class Network:
                 bonds_start = index + 2
                 bonds_end = bonds_start + n_bonds
                 location["bonds"] = (bonds_start, bonds_end)
+            if "Bond Coeffs" in line.strip():
+                bond_coeffs_start = index + 2
+                bond_coeffs_end = bond_coeffs_start + n_bonds
+                location["bond_coeffs"] = (bond_coeffs_start, bond_coeffs_end)
             if "Angles" in line.strip():
                 angles_start = index + 2
                 angles_end = angles_start + n_angles
@@ -684,7 +701,7 @@ class Network:
                 atom2 = atoms_map[atom2_id]
                 atom1.bonded.append(atom2_id)
                 atom2.bonded.append(atom1_id)
-                bonds.append(Bond(atom1, atom2))
+                bonds.append(Bond(atom1, atom2, box))
 
             print(f"Bonds read: {len(bonds)}")
         else:
@@ -764,6 +781,11 @@ class Network:
         with open(path, "w", encoding="utf8") as file:
             self.header.write_header(file)
 
+            if self.masses:
+                file.write("\nMasses # ['atom_id', 'mass']\n\n")
+                for key, value in self.masses.items():
+                    file.write(" ".join([str(key), str(float(value))]) + "\n")
+
             if self.atoms:
                 # write `Atoms` section
                 # 7-7-7-11-11-11-11
@@ -772,23 +794,32 @@ class Network:
                 for atom in self.atoms:
                     properties = [
                         atom.atom_id,
-                        "1",  # molecule ID. always 1 for now
+                        1,  # molecule ID. always 1 for now
                         atom.atom_type,  # defaults to 1 when construsted
-                        "0.000000",  # charge. always neutral for now
-                        round(atom.x, 6),
-                        round(atom.y, 6),
-                        round(atom.z, 6),
+                        format(0.0, ".6f"),  # charge. always neutral for now
+                        format(round(atom.x, 6), ".6f"),
+                        format(round(atom.y, 6), ".6f"),
+                        format(round(atom.z, 6), ".6f"),
                     ]
                     widths = [7, 7, 7, 11, 11, 11, 11]
                     line = table_row(properties, widths)
                     file.write(line)
 
-            if self.masses:
-                file.write("\nMasses # ['atom_id', 'mass']\n\n")
-                for key, value in self.masses.items():
-                    file.write(" ".join([str(key), str(float(value))]) + "\n")
-
             if self.bonds:
+                # write `Bond Coeffs` section
+                # 7-11-11
+                legend = ["bondID", "bondCoeff", "d"]
+                file.write(f"\nBond Coeffs # {legend}\n\n")
+                for n, bond in enumerate(self.bonds):
+                    properties = [
+                        n + 1,
+                        format(round(bond.bond_coefficient, 6), ".6f"),
+                        format(round(bond.length, 6), ".6f"),
+                    ]
+                    widths = [7, 11, 11]
+                    line = table_row(properties, widths)
+                    file.write(line)
+
                 # write `Bonds` section
                 # 10-10-10-10
                 legend = ["ID", "type", "atom1", "atom2"]
@@ -804,21 +835,21 @@ class Network:
                     line = table_row(properties, widths)
                     file.write(line)
 
-                # write `Bond Coeffs` section
+            if self.angles:
+                # write `Angle Coeffs` section
                 # 7-11-11
-                legend = ["bondID", "bondCoeff", "d"]
-                file.write(f"\nBond Coeffs # {legend}\n\n")
-                for n, bond in enumerate(self.bonds):
+                legend = ["angleID", "energy", "value (deg)"]
+                file.write(f"\nAngle Coeffs # {legend}\n\n")
+                for angle in self.angles:
                     properties = [
-                        n + 1,
-                        round(bond.bond_coefficient, 6),
-                        round(bond.length, 6),
+                        angle.angle_id,
+                        format(angle.energy, ".6f"),
+                        format(angle.value, ".6f"),
                     ]
                     widths = [7, 11, 11]
                     line = table_row(properties, widths)
                     file.write(line)
 
-            if self.angles:
                 # write `Angles` section
                 # 10-10-10-10-10
                 legend = ["angleID", "angleType", "atom1", "atom2", "atom3"]
@@ -832,16 +863,6 @@ class Network:
                         angle.atom3.atom_id,
                     ]
                     widths = [10, 10, 10, 10, 10]
-                    line = table_row(properties, widths)
-                    file.write(line)
-
-                # write `Angle Coeffs` section
-                # 7-11-11
-                legend = ["angleID", "energy", "value (deg)"]
-                file.write(f"\nAngle Coeffs # {legend}\n\n")
-                for angle in self.angles:
-                    properties = [angle.angle_id, angle.energy, angle.value]
-                    widths = [7, 11, 11]
                     line = table_row(properties, widths)
                     file.write(line)
 
@@ -932,7 +953,7 @@ def make_bonds(atoms: list[Atom], box: Box) -> list:
                 if atom_k.dist(atom_j) <= (
                     (atom_k.diameter / 2) + (atom_j.diameter / 2)
                 ):
-                    bonds.add(Bond(atom_k, atom_j))
+                    bonds.add(Bond(atom_k, atom_j, box))
                     atom_k.bonded.append(atom_j.atom_id)
                     atom_k.n_bonds += 1
 
@@ -946,7 +967,7 @@ def make_bonds(atoms: list[Atom], box: Box) -> list:
             if main_atom.dist(outside_atom) <= (
                 (main_atom.diameter / 2) + outside_atom.diameter / 2
             ):
-                extra_bonds.add(Bond(main_atom, outside_atom))
+                extra_bonds.add(Bond(main_atom, outside_atom, box))
                 main_atom.bonded.append(outside_atom.atom_id)
                 main_atom.n_bonds += 1
     return list(bonds.union(extra_bonds))
