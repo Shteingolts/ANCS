@@ -150,8 +150,7 @@ class Bond:
         if {self.atom1, self.atom2} == {other.atom1, other.atom2}:
             if round(self.length, 6) == round(other.length, 6):
                 return True
-        else:
-            return False
+        return False
 
     def __hash__(self) -> int:
         if self.atom1.atom_id > self.atom2.atom_id:
@@ -180,7 +179,7 @@ class Angle:
         atom3: Atom,
         box: Box,
         energy: float = 0.0,
-        value: float = None,
+        value: float | None = None,
     ):
         self.angle_id = angle_id
         self.atom1 = atom1
@@ -277,12 +276,12 @@ class Header:
 
     def __init__(
         self,
-        atoms: List[Atom],
-        bonds: List or None,
+        atoms: list[Atom],
+        bonds: list[Bond],
         box: Box,
-        angles: List or None = None,
-        dihedrals: List or None = None,
-        impropers: List or None = None,
+        angles: list = [],
+        dihedrals: list = [],
+        impropers: list = [],
         atom_types: int = 1,  # defaults to one
         bond_types: int = 0,
         angle_types: int = 0,
@@ -291,10 +290,10 @@ class Header:
     ):
         self.box_dimensions = box.dimensions
         self.atoms = len(atoms)
-        self.bonds = len(bonds) if (bonds is not None) else 0
-        self.angles = len(angles) if (angles is not None) else 0
-        self.dihedrals = len(dihedrals) if (dihedrals is not None) else 0
-        self.impropers = len(impropers) if (impropers is not None) else 0
+        self.bonds = len(bonds) if bonds else 0
+        self.angles = len(angles) if angles else 0
+        self.dihedrals = len(dihedrals) if dihedrals else 0
+        self.impropers = len(impropers) if impropers else 0
         self.atom_types = atom_types
 
         if not self.bonds:
@@ -325,7 +324,7 @@ class Header:
             self.improper_types = 0
         else:
             if improper_types == 0:
-                self.improper_types = len(improper_types)
+                self.improper_types = len(impropers)
             else:
                 self.improper_types = improper_types
 
@@ -415,6 +414,9 @@ class Box:
                 z1 = float(content[index + 2].split()[0])
                 z2 = float(content[index + 2].split()[1])
                 break
+        else:  # no break
+            print("[ERROR] Could not find box info")
+            x1 = x2 = y1 = y2 = z1 = z2 = 0
 
         return Box(x1, x2, y1, y2, z1, z2)
 
@@ -459,9 +461,9 @@ class Network:
         bonds: list[Bond],
         box: Box,
         header: Header,
-        angles: list[Angle] = None,
-        dihedrals: list[Dihedral] = None,
-        masses: dict[int, float] = None,
+        angles: list[Angle] | None = None,
+        dihedrals: list[Dihedral] | None = None,
+        masses: dict[int, float] | None = None,
     ):
         self.atoms = atoms
         self.bonds = bonds
@@ -557,7 +559,7 @@ class Network:
         print(f"Atoms: {len(atoms)}")
         print(f"Bonds: {len(bonds)}")
 
-        angles = Network._compute_angles(atoms, box) if include_angles else None
+        angles = Network._compute_angles(atoms, box) if include_angles else []
 
         header = Header(atoms, bonds, box, angles=angles)
         return Network(atoms, bonds, box, header, angles=angles)
@@ -623,12 +625,12 @@ class Network:
         angles = []
         # dihedrals = []
 
-        location = {
-            "atoms": (),
-            "bonds": (),
-            "angles": (),
-            "dihedrals": (),
-            "masses": (),
+        location: dict[str, tuple[int | None, int | None]] = {
+            "atoms": tuple(),
+            "bonds": tuple(),
+            "angles": tuple(),
+            "dihedrals": tuple(),
+            "masses": tuple(),
         }
 
         for index, line in enumerate(content):
@@ -667,7 +669,9 @@ class Network:
                 )
             print(f"Atoms read: {len(atoms)}")
         else:
-            print("[ERROR]: Something went wrong when reading atoms from the file.")
+            print(
+                "[ERROR]: Something went wrong when trying to read atoms from the file."
+            )
 
         if location["bonds"]:
             print(f"Bonds expected: {n_bonds}")
@@ -834,7 +838,7 @@ class Network:
                 # write `Angle Coeffs` section
                 # 7-11-11
                 legend = ["angleID", "energy", "value (deg)"]
-                file.write(f"Angle Coeffs # {legend}\n\n")
+                file.write(f"\nAngle Coeffs # {legend}\n\n")
                 for angle in self.angles:
                     properties = [angle.angle_id, angle.energy, angle.value]
                     widths = [7, 11, 11]
@@ -875,17 +879,17 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
             break
     # Go line-by-line extracting useful info
     for atom_line in file_contents[atoms_start_line:atoms_end_line]:
-        atom_id = atom_line.strip().split()[0]
-        atom_type = atom_line.strip().split()[1]
-        atom_diameter = atom_line.strip().split()[2]
-        x = atom_line.split()[4]
-        y = atom_line.split()[5]
-        z = atom_line.split()[6]
+        atom_id = int(atom_line.strip().split()[0])
+        # atom_type = int(atom_line.strip().split()[1])
+        atom_diameter = float(atom_line.strip().split()[2])
+        x = float(atom_line.split()[4])
+        y = float(atom_line.split()[5])
+        z = float(atom_line.split()[6])
         atoms.append(Atom(atom_id, atom_diameter, x, y, z))
     return atoms
 
 
-def delete_dangling(atoms: List[Atom]) -> tuple(list, int):
+def delete_dangling(atoms: List[Atom]) -> tuple[list, int]:
     new_atoms = [atom for atom in atoms if atom.n_bonds > 2]
     difference = len(atoms) - len(new_atoms)
     for atom in new_atoms:
@@ -962,7 +966,10 @@ def main():
     print(f"Input file: {os.path.abspath(input_file_path)}")
 
     if len(sys.argv) > 2:
-        out_file_path = sys.argv[2]
+        out_file_name = sys.argv[2]
+        out_file_path = os.path.join(
+            os.path.dirname(os.path.abspath(input_file_path)), out_file_name
+        )
     else:
         input_file_path = os.path.abspath(input_file_path)
         input_dir = os.path.dirname(input_file_path)
@@ -976,10 +983,4 @@ def main():
     network.write_to_file(out_file_path)
 
 
-# main()
-
-network = Network.from_data_file(
-    os.path.join(os.path.expanduser("~"), "work", "tuning", "network.lmp")
-)
-
-network.write_to_file(os.path.join(os.path.expanduser("~"), "example_masses2.lmp"))
+main()
