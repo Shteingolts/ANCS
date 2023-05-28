@@ -1,7 +1,7 @@
 """
 A simple utility script, which takes lammps dump output and turns it
 into a lammps-readable file.
-v. 0.1.0
+v. 0.1.5
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import os
 import sys
 from copy import deepcopy
 from math import acos, degrees, sqrt
-from typing import List, TextIO
+from typing import TextIO
 
 from helpers import add_spaces, table_row
 
@@ -135,18 +135,21 @@ class Bond:
     bond_coefficient: float
 
     def __init__(self, atom1: Atom, atom2: Atom, box: Box):
-        # crude hack for 2D only
+        """Due to the periodicity of the network, when making a bond between two atoms
+        one needs to find the closest pair of two atoms, which may not be in the same
+        simulation box."""
         self.atom1 = atom1
 
-        atom2_candidates = make_surrounding([atom2], box)
-        atom2_candidates.append(atom2)
-
-        min_dist = 10.0
-        closest: Atom = atom2
-        for candidate in atom2_candidates:
-            if atom1.dist(candidate) < min_dist:
-                min_dist = atom1.dist(candidate)
-                closest = candidate
+        # create a list of of all possible variants of atom 2
+        # and see which one is the closest to the 1st atom.
+        atom2_variants = make_surrounding([atom2], box)
+        atom2_variants.append(atom2)
+        min_dist = atom1.dist(atom2_variants[0])
+        closest: Atom = atom2_variants[0]
+        for variant in atom2_variants[1:]:
+            if atom1.dist(variant) < min_dist:
+                min_dist = atom1.dist(variant)
+                closest = variant
 
         self.atom2 = closest
         self.length = atom1.dist(closest)
@@ -572,9 +575,12 @@ class Network:
         print(f"Bonds: {len(bonds)}")
 
         angles = Network._compute_angles(atoms, box) if include_angles else []
+        if include_default_masses is True:
+            print("Assigning default mass of 1.0 to all atom types.")
+            masses = {1: 1.0}
 
         header = Header(atoms, bonds, box, angles=angles)
-        return Network(atoms, bonds, box, header, angles=angles)
+        return Network(atoms, bonds, box, header, angles=angles, masses=masses)
 
     @classmethod
     def from_data_file(
@@ -785,6 +791,8 @@ class Network:
                 file.write("\nMasses # ['atom_id', 'mass']\n\n")
                 for key, value in self.masses.items():
                     file.write(" ".join([str(key), str(float(value))]) + "\n")
+            else:
+                print("Atomic masses are not specified.")
 
             if self.atoms:
                 # write `Atoms` section
@@ -877,7 +885,7 @@ class Network:
         sys.exit(1)
 
 
-def get_atoms(file_contents: List[str]) -> List[Atom]:
+def get_atoms(file_contents: list[str]) -> list[Atom]:
     n_atoms = 0
     atoms_start_line = 0
     atoms_end_line = 0
@@ -910,7 +918,7 @@ def get_atoms(file_contents: List[str]) -> List[Atom]:
     return atoms
 
 
-def delete_dangling(atoms: List[Atom]) -> tuple[list, int]:
+def delete_dangling(atoms: list[Atom]) -> tuple[list, int]:
     new_atoms = [atom for atom in atoms if atom.n_bonds > 2]
     difference = len(atoms) - len(new_atoms)
     for atom in new_atoms:
@@ -920,7 +928,7 @@ def delete_dangling(atoms: List[Atom]) -> tuple[list, int]:
     return (new_atoms, difference)
 
 
-def make_surrounding(atoms: List[Atom], box: Box, dimensions: int = 2) -> List[Atom]:
+def make_surrounding(atoms: list[Atom], box: Box, dimensions: int = 2) -> list[Atom]:
     surrounding_atoms = set()
     # spawn neighboring atoms along the x and y axis of the bounding box, 8 in total
     if dimensions == 2:
