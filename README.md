@@ -26,4 +26,4 @@ Please ensure that your input atomic data file adheres to the LAMMPS format and 
 
 ## License
 
-This project is licensed under the [MIT License](https://github.com/Shteingolts/L2N/LICENSE.txt).
+This project is licensed under the [MIT License](https://github.com/Shteingolts/L2N/blob/master/LICENSE.txt).
