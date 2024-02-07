@@ -1,47 +1,47 @@
 """
-A simple utility script, which takes lammps dump output and turns it
-into a lammps-readable file.
-v. 0.1.5
+Simple utility script, a collection of lammps-docused tools to help create, modify, read and write disordered elastic networks.
+v. 0.2.0
 """
 
 from __future__ import annotations
 
 import os
+import pickle
 import sys
 from copy import deepcopy
 from math import acos, degrees, sqrt
 from typing import TextIO
 
-from helpers import add_spaces, table_row
-
 
 class Atom:
     atom_id: int
-    atom_type: int
     diameter: float
     n_bonds: int
     bonded: list[int]
     x: float
     y: float
     z: float
+    disk_type: int | None
 
     def __init__(
         self,
         atom_id: int,
-        diameter: float,
-        x: float or int,
-        y: float or int,
-        z: float or int,
+        atom_diameter: float,
+        x: float,
+        y: float,
+        z: float,
+        disk_type: int | None = None,
         atom_type: int = 1,
     ):
         self.atom_id = int(atom_id)
         self.atom_type = atom_type
-        self.diameter = float(diameter)
+        self.diameter = atom_diameter
         self.n_bonds = 0
         self.bonded = []
         self.x = float(x)
         self.y = float(y)
         self.z = float(z)
+        self.disk_type = disk_type
 
     def __repr__(self) -> str:
         return f"Atom {self.atom_id} : {self.x}, {self.y}, {self.z})."
@@ -134,25 +134,13 @@ class Bond:
     length: float
     bond_coefficient: float
 
-    def __init__(self, atom1: Atom, atom2: Atom, box: Box):
+    def __init__(self, atom1: Atom, atom2: Atom):
         """Due to the periodicity of the network, when making a bond between two atoms
         one needs to find the closest pair of two atoms, which may not be in the same
         simulation box."""
         self.atom1 = atom1
-
-        # create a list of of all possible variants of atom 2
-        # and see which one is the closest to the 1st atom.
-        atom2_variants = make_surrounding([atom2], box)
-        atom2_variants.append(atom2)
-        min_dist = atom1.dist(atom2_variants[0])
-        closest: Atom = atom2_variants[0]
-        for variant in atom2_variants[1:]:
-            if atom1.dist(variant) < min_dist:
-                min_dist = atom1.dist(variant)
-                closest = variant
-
-        self.atom2 = closest
-        self.length = atom1.dist(closest)
+        self.atom2 = atom2
+        self.length = atom1.dist(atom2)
         self.bond_coefficient = 1 / (self.length**2)
 
     def __repr__(self) -> str:
@@ -343,7 +331,7 @@ class Header:
             else:
                 self.improper_types = improper_types
 
-    def write_header(self, file: TextIO) -> None:
+    def write_header(self, file: TextIO, add_box_line: bool = True) -> None:
         file.write("LAMMPS data file.\n\n")
         file.write(add_spaces(f"{str(self.atoms)}", 7))
         file.write(" atoms\n")
@@ -374,6 +362,8 @@ class Header:
         file.write(add_spaces(f"{format(round(self.box_dimensions[4], 6), '.6f')}", 11))
         file.write(add_spaces(f"{format(round(self.box_dimensions[5], 6), '.6f')}", 11))
         file.write(" zlo zhi\n")
+        if add_box_line:
+            file.write("0.0 0.0 0.0 xy xz yz\n")
 
 
 class Box:
@@ -395,25 +385,6 @@ class Box:
             f"({round(self.y1, 3)} : {round(self.y2, 3)}) "
             f"({round(self.z1, 3)} : {round(self.z2, 3)})"
         )
-
-    # @classmethod
-    # def from_atoms(cls, file: str) -> Box:
-    #     with open(file, encoding="utf8") as atoms_file:
-    #         content = atoms_file.readlines()
-    #         x1, x2 = (float(content[5].split()[0]), float(content[5].split()[1]))
-    #         y1, y2 = (
-    #             float(content[6].split()[0]),
-    #             float(content[6].split()[1]),
-    #         )
-    #         z1, z2 = (
-    #             float(content[7].split()[0]),
-    #             float(content[7].split()[1]),
-    #         )
-    #     try:
-    #         return Box(x1, x2, y1, y2, z1, z2)
-    #     except NameError:
-    #         print("Failure reading box dimensions, probably not a valid input file.")
-    #         sys.exit(1)
 
     @classmethod
     def from_data_file(cls, file: str) -> Box:
@@ -488,6 +459,38 @@ class Network:
         self.dihedrals = dihedrals
         self.masses = masses
 
+    def __repr__(self) -> str:
+        return f"Network ({len(self.atoms)} atoms, {len(self.bonds)} bonds)."
+
+    @property
+    def coordination_number(self) -> float:
+        return sum([len(atom.bonded) for atom in self.atoms]) / len(self.atoms)
+
+    @property
+    def atom_sizes(self) -> dict[float, int]:
+        """Counts the number of atoms of different sizes in the network.
+
+        Returns
+        -------
+        dict[float, int]
+            Dictionary with atom sizes as keys and
+        """
+        sizes = {}
+        for atom in self.atoms:
+            if atom.diameter not in sizes:
+                sizes[atom.diameter] = 1
+            else:
+                sizes[atom.diameter] += 1
+        return sizes
+
+    @property
+    def source_beads(self) -> tuple[int, ...]:
+        return tuple([atom.atom_id for atom in self.atoms if atom.atom_type == 2])
+
+    @property
+    def target_beads(self) -> tuple[int, ...]:
+        return tuple([atom.atom_id for atom in self.atoms if atom.atom_type == 3])
+
     @staticmethod
     def _compute_angles(atoms: list[Atom], box: Box) -> list[Angle]:
         atoms_map = {atom.atom_id: atom for atom in atoms}
@@ -510,34 +513,78 @@ class Network:
     def _compute_dihedrals(self):
         raise NotImplementedError("not yet...")
 
-    def remove_bond(self, bond: Bond):
-        try:
-            self.bonds.remove(bond)
-        except ValueError:
-            print(f"[ERROR] Bond {bond} is not in the network!")
-            return
+    def fix_sort(self):
+        """
+        Reset atom IDs and corresponding bond IDs for plumed.
+        """
+        # sort the atom in case they arent already
+        self.atoms.sort(key=lambda atom: atom.atom_id)
+        for index, atom in enumerate(self.atoms):
+            if index == 0:
+                pass
+            else:
+                previous_atom = self.atoms[index - 1]
+                if atom.atom_id - previous_atom.atom_id != 1:
+                    atom.atom_id = previous_atom.atom_id + 1
+        # check if something went wrong
+        for atom in self.atoms:
+            if atom.atom_id > len(self.atoms):
+                print("Something went wrong during fix_sort!!!!!!!!!")
+                print(atom)
+                sys.exit(1)
 
-    def set_source_beads(
-        self, source_beads: tuple[int, int], source_beads_mass: float = 1_000_000.0
+    def remove_bond(self, bond: Bond):
+        self.bonds.remove(bond)
+        self.header.bonds -= 1
+        self.header.bond_types -= 1
+
+        id1, id2 = bond.atom1.atom_id, bond.atom2.atom_id
+
+        atoms_map = {atom.atom_id: atom for atom in self.atoms}
+        atoms_map[id1].bonded.remove(id2)
+        atoms_map[id2].bonded.remove(id1)
+
+    def set_source_target(
+        self,
+        source_beads: tuple[int, int],
+        target_beads: tuple[int, int],
+        overwrite_existing: bool = True,
+        source_beads_mass: float = 100000000.0,
+        target_beads_mass: float = 1.0,
     ):
         """
-        Changes the types of atoms of target beads from 1 to 2.
+        Changes the types of atoms of source and target beads from 1
+        to 2 and 3, respectively. Assigns both a default mass.
+        If `overwrite_exisiting` is True, changes the previous source and target beads
+        to normal.
         """
         atoms_map = {atom.atom_id: atom for atom in self.atoms}
+        if overwrite_existing is True:
+            for atom in self.atoms:
+                atom.atom_type = 1
 
+        # source beads
         atoms_map[source_beads[0]].atom_type = 2
         atoms_map[source_beads[1]].atom_type = 2
 
-        self.masses = {1: 1.0, 2: source_beads_mass}
+        # target beads
+        atoms_map[target_beads[0]].atom_type = 3
+        atoms_map[target_beads[1]].atom_type = 3
+
+        # fix header
+        n_atom_types: int = len(set([atom.atom_type for atom in self.atoms]))
+        self.header.atom_types = n_atom_types
+        self.masses = {1: 1.0, 2: source_beads_mass, 3: target_beads_mass}
 
     @classmethod
     def from_atoms(
         cls,
         input_file: str,
-        include_angles=True,
-        include_dihedrals=True,
-        zero_z=True,
-        include_default_masses=True,
+        periodic: bool = True,
+        include_default_masses: float = 1.0,
+        include_angles: bool = True,
+        include_dihedrals: bool = True,
+        zero_z: bool = True,
     ) -> Network:
         """
         Reads the lammps data file with only atoms present.
@@ -549,14 +596,15 @@ class Network:
         - `include_angles` : bool - whether to include (read or calculate) angles
         - `inclue_dihedrals` : bool - whether to include (read or calculate) dihedrals
         - `zero_z` : bool - whether to set the z coordinates to zero (for 2D networks)
+        - `include_default_masses` : int - whether to include masses for atom.
+                                           0 to skip.
         """
         with open(input_file, "r", encoding="utf8") as f:
             content = f.readlines()
 
         box = Box.from_data_file(input_file)
-        print(f"{box}")
         atoms = get_atoms(content)
-        bonds = make_bonds(atoms, box)
+        bonds = make_bonds(atoms, box, periodic=periodic)
 
         # we assume that there's at least one dangling bead
         # if not, nothing bad will happen anyway
@@ -564,20 +612,19 @@ class Network:
         steps: int = 1
         while dangling_beads > 0:
             atoms, dangling_beads = delete_dangling(atoms)
-            bonds = make_bonds(atoms, box)
+            bonds = make_bonds(atoms, box, periodic)
             steps += 1
 
         if zero_z:
             for atom in atoms:
                 atom.z = 0.0
 
-        print(f"Atoms: {len(atoms)}")
-        print(f"Bonds: {len(bonds)}")
-
         angles = Network._compute_angles(atoms, box) if include_angles else []
-        if include_default_masses is True:
-            print("Assigning default mass of 1.0 to all atom types.")
-            masses = {1: 1.0}
+        if include_default_masses > 0:
+            # print("Assigning default mass of 1.0 to all atom types.")
+            masses = {1: include_default_masses}
+        else:
+            masses = None
 
         header = Header(atoms, bonds, box, angles=angles)
         return Network(atoms, bonds, box, header, angles=angles, masses=masses)
@@ -586,10 +633,10 @@ class Network:
     def from_data_file(
         cls,
         input_file: str,
-        include_angles=True,
-        include_dihedrals=True,
-        zero_z=True,
-        include_default_masses=True,
+        include_default_masses: float = 1.0,
+        include_angles: bool = True,
+        include_dihedrals: bool = True,
+        zero_z: bool = True,
     ) -> Network:
         """
         Reads the lammps data file and returns a `Network` object.
@@ -641,9 +688,9 @@ class Network:
         atoms = []
         bonds = []
         angles = []
-        # dihedrals = []
+        dihedrals = []  # noqa: F841
 
-        location: dict[str, tuple[int | None, int | None]] = {
+        location: dict[str, tuple[int | None, ...]] = {
             "atoms": tuple(),
             "bonds": tuple(),
             "angles": tuple(),
@@ -651,6 +698,16 @@ class Network:
             "masses": tuple(),
             "bond_coeffs": tuple(),
         }
+        atoms_start: int | None = None
+        atoms_end: int | None = None
+        bonds_start: int | None = None
+        bonds_end: int | None = None
+        angles_start: int | None = None
+        angles_end: int | None = None
+        bond_coeffs_start: int | None = None
+        bond_coeffs_end: int | None = None
+        masses_start: int | None = None
+        masses_end: int | None = None
 
         for index, line in enumerate(content):
             if "Atoms" in line.strip():
@@ -679,7 +736,7 @@ class Network:
                 location["masses"] = (masses_start, masses_end)
 
         if location["atoms"]:
-            print(f"Atoms expected: {n_atoms}")
+            assert atoms_start is not None
             for line in content[atoms_start:atoms_end]:
                 data = line.split()
                 atom_id = int(data[0])
@@ -690,26 +747,34 @@ class Network:
                 atoms.append(
                     Atom(atom_id, 0.0, x_coord, y_coord, z_coord, atom_type=atom_type)
                 )
-            print(f"Atoms read: {len(atoms)}")
         else:
             print(
                 "[ERROR]: Something went wrong when trying to read atoms from the file."
             )
 
-        if location["bonds"]:
-            print(f"Bonds expected: {n_bonds}")
+        if location["bonds"] and location["bond_coeffs"]:
+            assert bonds_start is not None
+            assert bond_coeffs_start is not None
+
             atoms_map = {atom.atom_id: atom for atom in atoms}
-            for line in content[bonds_start:bonds_end]:
-                data = line.split()
+            for bond_line, bond_coeff_line in zip(
+                content[bonds_start:bonds_end],
+                content[bond_coeffs_start:bond_coeffs_end],
+            ):
+                data = bond_line.split()
                 atom1_id = int(data[2])
                 atom2_id = int(data[3])
                 atom1 = atoms_map[atom1_id]
                 atom2 = atoms_map[atom2_id]
                 atom1.bonded.append(atom2_id)
                 atom2.bonded.append(atom1_id)
-                bonds.append(Bond(atom1, atom2, box))
 
-            print(f"Bonds read: {len(bonds)}")
+                # reading bond length and coeff from file here to avoid
+                # unrealistic bond lengths in case the network is periodic
+                bond = Bond(atom1, atom2)
+                bond.length = float(bond_coeff_line.split()[2])
+                bond.bond_coefficient = float(bond_coeff_line.split()[1])
+                bonds.append(bond)
         else:
             print("[ERROR]: Something went wrong when reading bonds from the file.")
 
@@ -718,7 +783,7 @@ class Network:
         local_network = Network(atoms, bonds, box, header)
 
         if location["angles"]:
-            print(f"Angles expected: {n_angles}")
+            assert angles_start is not None
             if include_angles is True:
                 atoms_map = {atom.atom_id: atom for atom in atoms}
                 for line in content[angles_start:angles_end]:
@@ -728,37 +793,41 @@ class Network:
                     atom2 = atoms_map[int(data[3])]
                     atom3 = atoms_map[int(data[4])]
                     angles.append(Angle(angle_id, atom1, atom2, atom3, box))
-                print(f"Angles read: {len(angles)}")
+                # print(f"Angles read: {len(angles)}")
                 local_network.angles = angles
                 header.angles = len(angles)
                 header.angle_types = len(angles)
             else:
-                print("Angles are not included")
+                pass
         else:
-            print("No angle data have been found")
+            # print("No angle data have been found")
             if include_angles is True:
-                print("Calculating angles..")
+                # print("Calculating angles..")
                 angles = Network._compute_angles(atoms, box)
                 local_network.angles = angles
                 header.angles = len(angles)
                 header.angle_types = len(angles)
-                print(f"Angles calculated: {len(angles)}")
+                # print(f"Angles calculated: {len(angles)}")
             else:
-                print("Angles are not included")
-
+                # print("Angles are not included")
+                pass
         if location["dihedrals"]:
             # TODO Implement reading and writing dihedrals
-            print(f"Dihedrals expected: {n_dihedrals}")
+            # print(f"Dihedrals expected: {n_dihedrals}")
             if include_dihedrals is True:
-                print("Dihedrals are not yet emplemented.")
+                # print("Dihedrals are not yet emplemented.")
+                pass
             else:
-                print("Dihedrals are not included")
+                # print("Dihedrals are not included")
+                pass
         else:
-            print("No dihedrals data have been found")
+            # print("No dihedrals data have been found")
             if include_dihedrals is True:
-                print("Dihedrals are not yet emplemented.")
+                # print("Dihedrals are not yet emplemented.")
+                pass
             else:
-                print("Dihedrals are not included")
+                # print("Dihedrals are not included")
+                pass
 
         if location["masses"]:
             masses = {}
@@ -766,26 +835,34 @@ class Network:
                 data = line.split()
                 masses[int(data[0])] = float(data[1])
 
-            print("Found mass info: ")
-            for key, value in masses.items():
-                print(f"    Atom type: {key}, mass: {value} units")
+            # print("Found mass info: ")
+            # for key, value in masses.items():
+            # print(f"    Atom type: {key}, mass: {value} units")
             local_network.masses = masses
         else:
-            print("No masses data have been found")
-            if include_default_masses is True:
-                print("Assigning default mass of 1.0 to all atom types.")
-                masses = {atom_type: 1.0 for atom_type in range(1, n_atom_types + 1)}
+            # print("No masses data have been found")
+            if include_default_masses != 0:
+                # print(f"Assigning default mass of {include_default_masses} to all atom types.")
+                masses = {
+                    atom_type: include_default_masses
+                    for atom_type in range(1, n_atom_types + 1)
+                }
                 local_network.masses = masses
 
         return local_network
 
-    def write_to_file(self, target_file: str) -> str:
+    @classmethod
+    def from_pickle(cls, filepath: str) -> Network:
+        with open(filepath, "rb") as network_file:
+            return pickle.load(network_file)
+
+    def write_to_file(self, target_file: str, add_box_line: bool = True) -> str:
         """
         Writes network to a file a returns the path
         """
         path = os.path.abspath(os.path.join(os.getcwd(), target_file))
         with open(path, "w", encoding="utf8") as file:
-            self.header.write_header(file)
+            self.header.write_header(file, add_box_line=add_box_line)
 
             if self.masses:
                 file.write("\nMasses # ['atom_id', 'mass']\n\n")
@@ -875,14 +952,19 @@ class Network:
                     file.write(line)
 
             if self.dihedrals:
-                print("Writing dihedrals to a file is not implemented.")
+                # print("Writing dihedrals to a file is not implemented.")
+                pass
                 # TODO Implement reading and writing dihedrals
 
         if os.path.exists(path) and os.path.getsize(path) > 0:
-            print(f"Output was written in: {os.path.abspath(path)}")
+            # print(f"Output was written in: {os.path.abspath(path)}")
             return path
         print(f"Problem saving network to {path}")
         sys.exit(1)
+
+    def write_to_pickle(self, filepath: str):
+        with open(filepath, "wb") as network_file:
+            pickle.dump(self, network_file)
 
 
 def get_atoms(file_contents: list[str]) -> list[Atom]:
@@ -908,13 +990,13 @@ def get_atoms(file_contents: list[str]) -> list[Atom]:
             break
     # Go line-by-line extracting useful info
     for atom_line in file_contents[atoms_start_line:atoms_end_line]:
-        atom_id = int(atom_line.strip().split()[0])
-        # atom_type = int(atom_line.strip().split()[1])
-        atom_diameter = float(atom_line.strip().split()[2])
-        x = float(atom_line.split()[4])
-        y = float(atom_line.split()[5])
-        z = float(atom_line.split()[6])
-        atoms.append(Atom(atom_id, atom_diameter, x, y, z))
+        atom_id: int = int(atom_line.strip().split()[0])
+        disk_type: int = int(atom_line.strip().split()[1])
+        atom_diamater = float(atom_line.strip().split()[2])
+        x: float = float(atom_line.split()[4])
+        y: float = float(atom_line.split()[5])
+        z: float = float(atom_line.split()[6])
+        atoms.append(Atom(atom_id, atom_diamater, x, y, z, disk_type=disk_type))
     return atoms
 
 
@@ -953,7 +1035,8 @@ def make_surrounding(atoms: list[Atom], box: Box, dimensions: int = 2) -> list[A
     return list(surrounding_atoms)
 
 
-def make_bonds(atoms: list[Atom], box: Box) -> list:
+def make_bonds(atoms: list[Atom], box: Box, periodic: bool) -> list:
+    # first make all the bond inside the simulation box
     bonds = set()
     for atom_k in atoms:
         for atom_j in atoms:
@@ -961,55 +1044,103 @@ def make_bonds(atoms: list[Atom], box: Box) -> list:
                 if atom_k.dist(atom_j) <= (
                     (atom_k.diameter / 2) + (atom_j.diameter / 2)
                 ):
-                    bonds.add(Bond(atom_k, atom_j, box))
+                    bonds.add(Bond(atom_k, atom_j))
                     atom_k.bonded.append(atom_j.atom_id)
                     atom_k.n_bonds += 1
 
-    edges = [atom for atom in atoms if atom.on_edge(box, 1.0)]
-    neighbors = make_surrounding(atoms, box)
-    edge_neighbors = [atom for atom in neighbors if atom.on_edge(box, 1.0)]
-
     extra_bonds = set()
-    for main_atom in edges:
-        for outside_atom in edge_neighbors:
-            if main_atom.dist(outside_atom) <= (
-                (main_atom.diameter / 2) + outside_atom.diameter / 2
-            ):
-                extra_bonds.add(Bond(main_atom, outside_atom, box))
-                main_atom.bonded.append(outside_atom.atom_id)
-                main_atom.n_bonds += 1
+    if periodic:
+        atoms_map = {atom.atom_id: atom for atom in atoms}
+        edge_atom = [atom for atom in atoms if atom.on_edge(box, 2.0)]
+        neighbours = make_surrounding(atoms, box)
+        edge_neighbors = [atom for atom in neighbours if atom.on_edge(box, 2.0)]
+
+        for main_atom in edge_atom:
+            for outside_atom in edge_neighbors:
+                if main_atom.dist(outside_atom) <= (
+                    (main_atom.diameter / 2) + outside_atom.diameter / 2
+                ):
+                    bond = Bond(main_atom, outside_atom)
+                    bond.atom2 = atoms_map[outside_atom.atom_id]
+                    extra_bonds.add(bond)
+                    main_atom.bonded.append(outside_atom.atom_id)
+                    main_atom.n_bonds += 1
+
     return list(bonds.union(extra_bonds))
 
 
-def main():
-    usage_info = "\n[USAGE]:\n\n    ./network.py target_file [OPTIONAL] out_file.\n"
+def table_row(items: list, widths: list[int], indent: str = "right") -> str:
+    """
+    Creates a string with the certain number of spaces between words
+    alligned to either right or left
+    """
+    line = []
+    for item, width in zip(items, widths):
+        line.append(add_spaces(str(item), width, indent))
+
+    return "".join(line) + "\n"
+
+
+def add_spaces(string: str, width: int, indent: str = "right") -> str:
+    """
+    If the string is longer than provided width,
+    returns the original string without change.
+    """
+    spaces_to_add = (width - len(string)) * " "
+    if width <= len(string):
+        return string
+    elif indent == "right":
+        return spaces_to_add + string
+    elif indent == "left":
+        return string + spaces_to_add
+    else:
+        raise IOError(
+            f"[ERROR] {indent} is not a valid indent type. Valid types are: 'right' or 'left'."
+        )
+
+
+if __name__ == "__main__":
+    run_command = ("python3 network.py target_file out_file")
     if len(sys.argv) < 2:
-        print("\n[ERROR]: target file was not provided.")
-        print(usage_info)
+        print(f"[ERROR]: target file was not provided. Run command: \"{run_command}\".")
+        # print(run_command)
         sys.exit(0)
     elif sys.argv[1] == "help":
-        print(usage_info)
+        print(run_command)
         sys.exit(0)
 
-    input_file_path = sys.argv[1]
-    print(f"Input file: {os.path.abspath(input_file_path)}")
+    match sys.argv[1]:
+        case "test":
+            input_file = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "example",
+                "example_input.dat",
+            )
+            print(f"Input file: {input_file}")
+            output_file = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "example",
+                "example_network.lmp",
+            )
+            print(f"Output file: {output_file}")
+            network = Network.from_atoms(input_file)
+            network.write_to_file(output_file)
+        case _:
+            input_file = sys.argv[1]
+            if len(sys.argv) > 2:
+                output_file_name = sys.argv[2]
+                output_file = os.path.join(
+                    os.path.dirname(os.path.abspath(input_file)), output_file_name
+                )
+            else:
+                input_file = os.path.abspath(input_file)
+                input_dir = os.path.dirname(input_file)
+                input_file_name = os.path.basename(input_file).split(".")[0]
+                output_file_name = "".join((input_file_name, "_network.lmp"))
+                output_file = os.path.join(input_dir, output_file_name)
 
-    if len(sys.argv) > 2:
-        out_file_name = sys.argv[2]
-        out_file_path = os.path.join(
-            os.path.dirname(os.path.abspath(input_file_path)), out_file_name
-        )
-    else:
-        input_file_path = os.path.abspath(input_file_path)
-        input_dir = os.path.dirname(input_file_path)
-        input_file_name = os.path.basename(input_file_path).split(".")[0]
-        out_file_name = "".join((input_file_name, "_out.lmp"))
-        out_file_path = os.path.join(input_dir, out_file_name)
+            print(f"Input file: {input_file}")
+            print(f"Output file: {output_file}")
 
-    # constructing the bare minimum network from atomic coordinates
-    network = Network.from_atoms(input_file_path)
-
-    network.write_to_file(out_file_path)
-
-
-main()
+            network = Network.from_atoms(input_file)
+            network.write_to_file(output_file)
